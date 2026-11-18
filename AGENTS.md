@@ -7,9 +7,20 @@ and opening them. No backend.
 
 ## Where we are
 
-The repo has its git, editor and CI setup and no app yet. The stack isn't
-picked. The deploy workflow expects npm: `npm ci`, then `npm run check`
-building into `dist/`, with the Vite `base` set to `/webapp-browser/`.
+The repo has its git, editor and deploy setup and no app yet. Another agent
+is writing the spec; build from that, not from this file.
+
+## Stack
+
+Plain HTML, CSS and JavaScript in `app/`, served as-is: no build, no npm
+packages, no framework. The manifest and service worker are hand-written.
+
+- **Relative URLs only** inside `app/`. Pages serves it under
+  `/webapp-browser/` and the dev server serves it at `/`; a leading `/` breaks
+  one of them.
+- **The service worker keeps serving old files** until its cache name
+  changes, so an installed app won't pick up a deploy unless the worker
+  handles updates.
 
 ## The platform limit
 
@@ -28,21 +39,23 @@ these, and say which one a feature depends on.
 
 ## Dependencies
 
-- Ask before adding any npm package, vendored file or program, and prefer
-  ones with few dependencies.
-- The committed `.npmrc` turns off install scripts, saves exact versions,
-  skips releases younger than 7 days and blocks git dependencies. Don't loosen
-  it. If a package can't work without its install script, ask. Install with
-  `npm ci`.
+- The owner chose no dependencies. Ask before adding any npm package,
+  vendored file, CDN script or program.
+- If npm ever comes in, the committed `.npmrc` turns off install scripts,
+  saves exact versions, skips releases younger than 7 days and blocks git
+  dependencies. Don't loosen it.
 
 ## Repo conventions
 
 - LF everywhere (`.gitattributes`, `.editorconfig`); batch files are CRLF.
-- `.github/workflows/deploy-pages.yml` runs `npm run check` on every PR and
-  push, and deploys `dist/` to GitHub Pages on a push to `main`. Actions are
-  pinned by commit SHA, with the version in a comment.
+- `.github/workflows/deploy-pages.yml` publishes `app/` to GitHub Pages on
+  every push to `main` (or a manual run). Actions are pinned by commit SHA,
+  with the version in a comment.
+- Dev server: the `dev` configuration in `.claude/launch.json`, Python's
+  `http.server` on `http://localhost:5180/` serving `app/`. Service workers
+  need localhost or https, so never test from `file://`.
 - `local/` is gitignored: real HTML files copied off the phone for testing.
   They're personal and the repo is public, so never commit one or copy it into
-  a test fixture.
+  `app/` or a test fixture.
 - Before your final message, stop any dev server or browser you started, and
   nothing else. Say what you stopped.

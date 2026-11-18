@@ -1,20 +1,6 @@
-# --- Node ---
+# --- Node (only if a tool ever needs it; the app has no build) ---
 node_modules/
 npm-debug.log*
-*.tgz
-
-# --- Build, test and PWA output ---
-dist/
-dist-ssr/
-# vite-plugin-pwa writes the dev service worker here.
-dev-dist/
-.vite/
-*.tsbuildinfo
-coverage/
-test-results/
-playwright-report/
-blob-report/
-playwright/.cache/
 
 # --- The owner's own downloads ---
 # Real HTML files copied off the phone for local testing. They're personal and
