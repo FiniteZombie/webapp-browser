@@ -54,7 +54,14 @@ const CATALOGUE = {
     body: `There isn’t enough storage left on this phone to keep a copy of ${subject}. Nothing was changed.`,
     next: 'Free some space and try again.',
   }),
-  'page-missing': ({ page }) => ({
+  // Two callers: the viewer (ctx.page, no file) when a page's stored copy is
+  // gone, and add-flow (ctx.file, no page) when the page being replaced was
+  // removed meanwhile, so there is nothing to replace into.
+  'page-missing': ({ page, file, hasFile, hasPage }) => (hasFile && !hasPage ? {
+    title: 'Page no longer there',
+    body: `The page you were replacing is no longer in Junk Drawer, so ${file} wasn’t added. Nothing was changed.`,
+    next: 'Go back to the library and add it as a new page if you still want it.',
+  } : {
     title: 'Page copy missing',
     body: `Junk Drawer’s copy of ${page} is missing. Its saved data is still there.`,
     next: 'Replace its file from the library to get it back.',
@@ -71,12 +78,12 @@ const CATALOGUE = {
   }),
   'delete-failed': ({ file }) => ({
     title: 'Downloaded file not deleted',
-    body: `The downloaded file ${file} is still on the phone. Junk Drawer couldn’t delete it and won’t offer to again on this phone. The page was added.`,
+    body: `The downloaded file ${file} is still on the phone. Junk Drawer couldn’t delete it and won’t offer to again on this phone. The page itself is safely saved in Junk Drawer.`,
     next: 'The footer of the library can turn the offer back on.',
   }),
   'delete-denied': ({ file }) => ({
     title: 'Downloaded file not deleted',
-    body: `The downloaded file ${file} is still on the phone because permission to delete it wasn’t given. The page was added.`,
+    body: `The downloaded file ${file} is still on the phone because permission to delete it wasn’t given. The page itself is safely saved in Junk Drawer.`,
     next: '',
   }),
   'picker-failed': () => ({
@@ -132,6 +139,8 @@ export function describe(err, ctx = {}) {
     page: pageName || 'this page',
     subject: fileName || pageName || 'it',
     about: fileName || pageName,
+    hasFile: Boolean(file),
+    hasPage: Boolean(page),
   };
   const { title, body, next } = CATALOGUE[code](names);
 

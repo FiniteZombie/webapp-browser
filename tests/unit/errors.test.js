@@ -105,3 +105,28 @@ test('environmentDetail resolves to multi-line text', async () => {
   }
   assert(text.includes(navigator.userAgent), 'has the user agent');
 });
+
+test('delete messages are true after an add and after a replace', () => {
+  for (const code of ['delete-failed', 'delete-denied']) {
+    const d = describe(new JdError(code), { file: { name: 'tip.html', type: 'text/html', size: 10 } });
+    assert(!/was added|was replaced/.test(d.body + d.next), `${code}: names one flow: ${d.body}`);
+    assert(/still on the phone/.test(d.body), `${code}: says the file is still there: ${d.body}`);
+    assert(/safely saved in Junk Drawer/.test(d.body), `${code}: says the page is safe: ${d.body}`);
+  }
+});
+
+test('page-missing reads sensibly in the viewer and when replacing', () => {
+  const viewer = describe(new JdError('page-missing'), { page });
+  assert(/copy of “Tip calculator” is missing/.test(viewer.body), viewer.body);
+  assert(/saved data is still there/.test(viewer.body), viewer.body);
+  assert(/Replace its file/.test(viewer.next), viewer.next);
+
+  const replace = describe(new JdError('page-missing', { detail: 'page id: gone-1' }),
+    { file: { name: 'tip.html', type: 'text/html', size: 10 } });
+  assert(/no longer in Junk Drawer/.test(replace.body), replace.body);
+  assert(replace.body.includes('“tip.html”') && /Nothing was changed/.test(replace.body), replace.body);
+  assert(!/saved data is still there|Replace its file/.test(replace.body + replace.next), 'no viewer advice');
+  assert(/add it as a new page/.test(replace.next), replace.next);
+  assert(replace.detail.includes('code: page-missing') && replace.detail.includes('gone-1'), replace.detail);
+  assert(replace.title !== viewer.title, 'distinct titles');
+});
