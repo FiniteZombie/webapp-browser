@@ -1,1 +1,74 @@
-/* stub: owned by WP10 */
+/* viewer.css (WP10): the full-screen layer that shows one page under a top
+   bar. Placeholder look; uses only base.css tokens. */
+
+#viewer {
+  position: fixed;
+  inset: 0;
+  z-index: var(--jd-z-viewer);
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  height: 100dvh;
+  background: var(--jd-bg);
+  color: var(--jd-fg);
+}
+
+.view-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--jd-gap);
+  height: calc(var(--jd-bar-h) + env(safe-area-inset-top, 0px));
+  padding:
+    env(safe-area-inset-top, 0px)
+    calc(8px + env(safe-area-inset-right, 0px))
+    0
+    calc(var(--jd-gap) + env(safe-area-inset-left, 0px));
+  border-bottom: 1px solid var(--jd-line);
+  background: var(--jd-surface);
+}
+
+.view-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  font-size: 1.05rem;
+  font-weight: 600;
+  line-height: 1.3;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.view-library {
+  flex: none;
+  padding: 4px 16px;
+}
+
+.view-body {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: auto;
+}
+
+.view-frame {
+  flex: 1;
+  display: block;
+  width: 100%;
+  min-height: 0;
+  border: 0;
+}
+
+.view-error {
+  margin: var(--jd-gap);
+  padding: 16px;
+  padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  border: 1px solid var(--jd-line);
+  border-left: 8px solid var(--jd-danger);
+  border-radius: var(--jd-radius);
+  background: var(--jd-surface);
+}
+
+.view-error .ui-next { color: var(--jd-muted); }
