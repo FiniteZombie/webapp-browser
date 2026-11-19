@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>unit tests</title>
+</head>
+<body>
+  <script type="module">
+    import { run } from './harness.js';
+    const file = new URLSearchParams(location.search).get('file') || '';
+    if (!/^[\w.-]+\.test\.js$/.test(file)) {
+      window.__done = { results: [{ name: 'load', ok: false, error: `bad file name: ${file}` }] };
+    } else {
+      try {
+        await import(`./${file}`);
+        await run(file);
+      } catch (e) {
+        window.__done = { results: [{ name: 'import', ok: false, error: String((e && e.stack) || e) }] };
+      }
+    }
+  </script>
+</body>
+</html>

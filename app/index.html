@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Junk Drawer</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg">
+  <link rel="stylesheet" href="styles/base.css">
+  <link rel="stylesheet" href="styles/library.css">
+  <link rel="stylesheet" href="styles/viewer.css">
+</head>
+<body>
+  <main id="library"></main>
+  <section id="viewer" hidden></section>
+  <div id="notices"></div>
+  <div id="dialogs"></div>
+  <div id="start-failed" hidden></div>
+  <script>
+  // Start guard: if the app hasn't said it's ready 8 s after load, say so
+  // instead of leaving a blank screen. Uses nothing from js/.
+  (function () {
+    var first = '';
+    function record(text) { if (!first) first = String(text); }
+    window.addEventListener('error', function (e) {
+      if (e instanceof ErrorEvent) {
+        record((e.error && e.error.stack) || (e.message + ' (' + e.filename + ':' + e.lineno + ')'));
+      } else if (e.target && e.target !== window) {
+        record('failed to load ' + (e.target.src || e.target.href || e.target.tagName));
+      }
+    }, true);
+    window.addEventListener('unhandledrejection', function (e) {
+      var r = e.reason;
+      record('unhandled rejection: ' + ((r && r.stack) || String(r)));
+    });
+    window.addEventListener('load', function () {
+      setTimeout(function () {
+        if (window.__jdReady === true) return;
+        var box = document.getElementById('start-failed');
+        if (!box) return;
+        function add(tag, text) {
+          var el = document.createElement(tag);
+          el.textContent = text;
+          box.appendChild(el);
+          return el;
+        }
+        add('h1', 'Junk Drawer didn’t start');
+        add('p', 'Close Junk Drawer and open it again.');
+        add('p', 'If that doesn’t help, copy the text below and give it to an agent.');
+        var area = add('textarea', '');
+        area.readOnly = true;
+        area.rows = 10;
+        area.value = 'Junk Drawer didn’t start\n' +
+          'error: ' + (first || 'none recorded') + '\n' +
+          'user agent: ' + navigator.userAgent + '\n' +
+          'address: ' + location.href + '\n' +
+          'time: ' + new Date().toISOString();
+        box.hidden = false;
+      }, 8000);
+    });
+  })();
+  </script>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
