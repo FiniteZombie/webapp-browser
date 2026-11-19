@@ -5,6 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Junk Drawer</title>
   <link rel="manifest" href="manifest.webmanifest">
+  <!-- Colours Android's status and navigation bars; overrides the manifest's
+       theme_color, which can't follow light and dark. -->
+  <meta name="theme-color" content="#f2f2f4" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
   <link rel="icon" href="icons/icon.svg">
   <link rel="stylesheet" href="styles/base.css">
   <link rel="stylesheet" href="styles/library.css">

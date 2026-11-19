@@ -50,4 +50,17 @@ module.exports = [
     const href = await page.evaluate(() => document.querySelector('link[rel="manifest"]')?.getAttribute('href'));
     assert.equal(href, 'manifest.webmanifest');
   } },
+
+  { name: 'system bars are black in dark mode', run: async (t) => {
+    const m = await manifest(t);
+    assert.equal(m.theme_color, '#000000');
+    assert.equal(m.background_color, '#000000');
+    const page = await t.openApp({ boot: false });
+    const metas = await page.evaluate(() => [...document.querySelectorAll('meta[name="theme-color"]')]
+      .map((el) => [el.getAttribute('media'), el.getAttribute('content')]));
+    assert.deepEqual(metas, [
+      ['(prefers-color-scheme: light)', '#f2f2f4'],
+      ['(prefers-color-scheme: dark)', '#000000'],
+    ]);
+  } },
 ];
