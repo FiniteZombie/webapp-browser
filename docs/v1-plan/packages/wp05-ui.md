@@ -22,6 +22,12 @@
   nothing depends on hover.
 - Dialogs and sheets are `<dialog>` elements. A **sheet** sits at the bottom
   of the screen, full width, rounded top corners; a **dialog** is centred.
+  Position them with `inset`/`margin`, **never `transform`** (and no
+  `filter` or `contain`): a transformed dialog becomes the containing block
+  for the fixed-position notices moved into it, and they land in the wrong
+  place.
+- `base.css` also defines the tokens in contracts section 4, including the
+  two layer tokens, and `[hidden] { display: none !important; }`.
 - Buttons: `.ui-btn`, `.ui-btn-primary`, `.ui-btn-danger`. A danger button is
   marked by its label and a heavier border as well as colour.
 - A visible focus ring on everything focusable.
@@ -34,16 +40,22 @@ tag, file name or error text through `innerHTML`.
 - **`showNotice`**: appends a card to `#notices` (a column fixed to the top
   of the screen, above dialogs and the viewer; scrolls if there are many).
   Title, body, the `next` line when non-empty, a "copy details" button when
-  `detail` is non-empty, any `actions`, and "dismiss". It never dismisses
-  itself. "copy details" uses `navigator.clipboard.writeText`; if that
-  rejects, show the detail in a read-only `<textarea>` inside the card,
-  selected, so it can be copied by hand. After a successful copy the button
-  reads "copied" for two seconds.
+  `detail` is non-empty (a `copyButton` whose `getText` returns the
+  detail), any `actions`, and "dismiss". It never dismisses itself.
   - A notice must stay reachable while a modal `<dialog>` is open. A modal
-    dialog makes the rest of the page inert, so while any dialog is open,
-    move `#notices` into the topmost open dialog and move it back on close
-    (or use `popover="manual"` on `#notices` and re-show it after each
-    `showModal()` so it sits in the top layer above the dialog). Test this.
+    dialog makes the rest of the page inert, so while a dialog is open, move
+    `#notices` into that dialog element, and move it back to `<body>`
+    **before** the dialog element is removed. (A `popover` does not work for
+    this: shown above a modal dialog it is visible but can't be clicked.
+    Tested.) Test that a notice raised under an open dialog can be
+    dismissed, and that one raised before a dialog opens is still there and
+    clickable while it's open and after it closes.
+- **`copyButton({ label, getText })`**: returns a button. On click it builds
+  `await getText()` + a blank line + `await environmentDetail()` and calls
+  `navigator.clipboard.writeText`. On success the button reads "copied" for
+  two seconds. If that rejects, it inserts a read-only `<textarea>` holding
+  the text straight after the button, focused and selected, so it can be
+  copied by hand.
 - **`reportError(err, ctx)`**: `showNotice(describe(err, ctx))`, and
   `console.error(err)`.
 - **`hasOpenUi()`**: true when any dialog is open or any notice is showing.
@@ -62,29 +74,42 @@ tag, file name or error text through `innerHTML`.
     preset on for those in `tags`; and a text field "new tags, separated by
     commas";
   - submit (label from `submitLabel`) and "cancel".
-  Resolves `{ name: trimmed, tags }` where `tags` is the on chips plus the
-  typed ones through `parseTags` (import it from `model.js`), or `null`.
+  Resolves `{ name: trimmed, tags }`, or `null`. `tags` is the labels of
+  the chips that are on, followed by the typed text split on commas, each
+  piece trimmed, empty pieces dropped. Don't normalise or de-duplicate:
+  the caller does that. `ui.js` must not import `model.js`.
 - **`addedSheet`**: a sheet with the title; when `canDelete`, a checkbox
   "delete the downloaded file from this phone", initially `deleteDefault`;
-  buttons "back to library" and "open". Resolves
-  `{ deleteOriginal, open }`; `deleteOriginal` is always `false` when
-  `canDelete` is false or the sheet was dismissed.
+  buttons "back to library" and "open". A button resolves
+  `{ deleteOriginal, open }` (`deleteOriginal` is `false` when `canDelete`
+  is false); dismissing the sheet resolves `null`.
 - Only one dialog shows at a time: a second call waits for the first to
   close.
-- Dismissal: handle the dialog's `cancel` and `close` events, and a tap on
-  the backdrop for sheets. Resolve exactly once and remove the element.
+- Dismissal: handle the dialog's `cancel` and `close` events, and for sheets
+  a tap outside the sheet: count it only when both the `pointerdown` and the
+  `click` landed on the `<dialog>` element itself (the backdrop), not on
+  anything inside it. Resolve exactly once and remove the element.
+- **A sheet opened by a long press must survive the finger lifting.** Ignore
+  every activation inside a sheet or on its backdrop until the sheet has
+  seen a `pointerdown` or `keydown` of its own after opening.
 
 ## Tests you write (`ui.e2e.cjs`)
 
 Drive `ui.js` by importing it inside the page
 (`page.evaluate(() => import('./js/ui.js'))`), then act through the DOM.
 
+Use `t.openApp({ boot: false })`.
+
 - a notice shows title, body and next; stays after 3 seconds; "dismiss"
-  removes it; "copy details" puts the detail on the clipboard (grant
-  clipboard permissions in the test context) and, with the clipboard
-  rejected, shows the textarea;
-- a notice raised while a dialog is open is visible and its "dismiss" is
-  clickable;
+  removes it; "copy details" puts the detail and the environment lines on
+  the clipboard (grant clipboard permissions in the test context) and, with
+  the clipboard rejected, shows the textarea;
+- a notice raised while a dialog is open is visible, sits at the top of the
+  screen (check its bounding box) and its "dismiss" is clickable; a notice
+  raised before a dialog opens survives the dialog opening and closing;
+- a sheet that has seen no `pointerdown` of its own ignores a `click` on its
+  backdrop and on an action (dispatch the events directly); after a real
+  click it responds;
 - `reportError` with a `JdError('wrong-type')` and a file shows the file's
   name;
 - `confirmDialog` resolves `true`/`false` for each button and `false` on
@@ -92,9 +117,11 @@ Drive `ui.js` by importing it inside the page
 - `choiceDialog` lists items, caps at 10 with "and N more", resolves the id;
 - `actionSheet` resolves the tapped id and `null` on backdrop tap;
 - `detailsDialog`: prefill, empty name refused with the message, chip
-  toggles, typed tags normalised and merged, cancel gives `null`;
+  toggles, typed tags returned trimmed after the on chips with empties
+  dropped, cancel gives `null`;
 - `addedSheet`: no checkbox when `canDelete` is false; each button with the
-  box on and off; Escape gives both `false`;
+  box on and off; Escape gives `null`;
+- `copyButton` on its own: copies `getText()`'s text plus environment lines;
 - a page name containing `<img src=x onerror=…>` renders as text;
 - `hasOpenUi()` in each state.
 

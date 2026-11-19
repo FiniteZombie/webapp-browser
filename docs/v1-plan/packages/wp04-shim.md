@@ -20,15 +20,20 @@ page's data.
 
 ## `inject.js` (pure)
 
-- `doctypeEnd(bytes)`: decode the first 2048 bytes as latin1 and match, from
-  the start: an optional UTF-8 BOM (`EF BB BF`), then any run of whitespace
-  and `<!-- … -->` comments, then `<!doctype …>` (case-insensitive). Return
-  the byte offset just after the doctype. With no doctype, return 3 if there
-  is a BOM, else 0.
+- `doctypeEnd(bytes)`: decode the first 65536 bytes as latin1 (a long
+  licence comment before the doctype is common enough; a short window would
+  miss the doctype and put the page in quirks mode) and match, from the
+  start: an optional UTF-8 BOM (`EF BB BF`), then any run of whitespace and
+  `<!-- … -->` comments, then `<!doctype …>` (case-insensitive). Return the
+  byte offset just after the doctype. With no doctype, return 3 if there is
+  a BOM, else 0.
+- `escapeForInlineScript(value)`: `JSON.stringify(value)` with every `<`
+  replaced by the six characters backslash, `u`, `0`, `0`, `3`, `c`, and
+  every character above `0x7F` replaced by its `\uXXXX` escape. The result
+  is ASCII and can't close a script element.
 - `inlineScript(shimSource, boot)`: bytes of
-  `<script>(SHIM)(BOOT);document.currentScript.remove()</script>`. `BOOT` is
-  `JSON.stringify(boot)` with every `<` written as `<` and every
-  character above `0x7F` written as `\uXXXX`. Throw if `shimSource` contains a
+  `<script>(SHIM)(BOOT);document.currentScript.remove()</script>`, where
+  `BOOT` is `escapeForInlineScript(boot)`. Throw if `shimSource` contains a
   non-ASCII character, `</script` (any case) or `<!--`.
 - `buildPageParts(bytes, shimSource, boot)`:
   `[bytes up to doctypeEnd, inlineScript, the rest]`.
@@ -55,11 +60,15 @@ plain ES2020, ASCII only. In this order:
    - **quota:** keep a running total of key and value lengths. A `setItem`
      that would take it over `boot.quotaChars` changes nothing, calls
      `host.notify('store-refused', { api: 'localStorage', detail })` and
-     throws `new DOMException(message, 'QuotaExceededError')`.
+     throws what Chrome throws: `new QuotaExceededError(message)` where that
+     class exists, else `new DOMException(message, 'QuotaExceededError')`.
+     Either way `err.name === 'QuotaExceededError'`.
    - Install with
      `Object.defineProperty(window, 'localStorage', { get, configurable: true })`.
-3. **`sessionStorage`.** The same stand-in with no host: starts empty, kept
-   in memory only.
+3. **`sessionStorage`.** The same stand-in, filled from
+   `host.sessionEntries` and reporting changes to `host.applySession`. No
+   quota. (The host keeps it only while the page is open, so it survives the
+   page reloading itself and is gone on the next open.)
 4. **`indexedDB`.** Patch `IDBFactory.prototype` in this realm:
    - `open(name, …rest)` and `deleteDatabase(name, …rest)` prefix the name
      with `boot.dbPrefix`, passing the other arguments through unchanged
@@ -75,9 +84,13 @@ plain ES2020, ASCII only. In this order:
    - return when the destination is the same document, a hash change, a
      download (`downloadRequest !== null`), not `http:`/`https:`, or has the
      page's own origin and pathname (a reload, or a form posting to itself);
-   - otherwise, if cancelable, `preventDefault()`. Then, when the event is
-     `userInitiated`, `window.open(url, '_blank', 'noopener')`; when it isn't
-     (a script redirect), `host.notify('external-nav', { url })`.
+   - return when the event isn't cancelable;
+   - otherwise `preventDefault()`, and then:
+     - **same origin, another path** (a link to `about.html`, a file that
+       sat beside the page): `host.notify('missing-file', { url })`;
+     - **another site**, `userInitiated`: `window.open(url, '_blank', 'noopener')`;
+     - **another site**, not user initiated (a script redirect):
+       `host.notify('external-nav', { url })`.
 6. `host.notify('ready')`.
 
 Wrap every host call so a failure in the host can't throw into the page's
@@ -92,11 +105,13 @@ non-ASCII; it throws on a shim source containing `</script` or a non-ASCII
 character; `pageShim.toString()` passes that check (the real shim is ASCII
 and safe).
 
-`page-shim.test.js`: no service worker needed. Build each test page as a
-`Blob` URL iframe in the test document: `<!doctype html>` + the bytes from
-`buildPageParts` + a script that records results on `window.R`. Define a
-fake host on the test window under `HOST_GLOBAL` that records `apply` and
-`notify` calls. Cover:
+`page-shim.test.js`: no service worker needed. For each test, write a small
+HTML document as a string (doctype, then a script that records results on
+`window.R`), encode it, pass it through
+`buildPageParts(bytes, pageShim.toString(), boot)`, make a `Blob` of the
+parts with type `text/html`, and load its object URL in an iframe in the
+test document. Define a fake host on the test window under `HOST_GLOBAL`
+that records `apply`, `applySession` and `notify` calls. Cover:
 
 - standards mode kept (`document.compatMode`), the injected script removed
   from the DOM;
@@ -106,16 +121,20 @@ fake host on the test window under `HOST_GLOBAL` that records `apply` and
   `host.apply` in order with the right arguments;
 - quota: an oversized `setItem` throws `QuotaExceededError`, changes nothing
   and notifies;
-- `sessionStorage` is empty on load and not the real one;
+- `sessionStorage` starts from `host.sessionEntries`, reports changes to
+  `host.applySession`, and the real `sessionStorage` of the test window is
+  untouched;
 - IndexedDB: two shimmed frames with different `dbPrefix` each create
   database `d` with different contents and don't see each other's;
   `db.name` is `d`; `indexedDB.databases()` lists only their own; the real
   names (seen from the test window) carry the prefixes; `deleteDatabase('d')`
   in one leaves the other;
 - no host (`connect` returns `null`): the page's script never ran;
-- navigation: `location.href = 'https://example.com/'` stays on the page and
-  the host gets `external-nav` with the URL; a hash change is not
-  intercepted.
+- navigation: `location.href = 'https://example.test/'` stays on the page
+  and the host gets `external-nav` with the URL; a navigation to a
+  same-origin URL with another path stays on the page and the host gets
+  `missing-file`; a hash change is not intercepted;
+- a doctype after a 3000-character comment still gives standards mode.
 
 Clean up the databases and iframes each test creates.
 

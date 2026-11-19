@@ -29,7 +29,9 @@ agents it affects.
     window and persisted to the `pageLocal` store. The shim reaches the window
     by direct function call (`parent.__junkDrawerHost`), not `postMessage`, so
     a write is recorded synchronously and survives the page reloading itself.
-  - `sessionStorage`: a stand-in held in memory, empty on every load.
+  - `sessionStorage`: the same kind of stand-in, held by the Junk Drawer
+    window only while the page is open. It survives the page reloading
+    itself and is empty on the next open ("lasts one view").
   - `indexedDB`: the real thing, with every database name prefixed
     `junk-drawer:page:<pageId>:`. The page sees its own names.
 - **The iframe is sandboxed without `allow-top-navigation`**, so a page can't
@@ -45,7 +47,8 @@ agents it affects.
 ### Proven before this plan was written
 
 These were tested in a throwaway spike on Chromium 157 (the engine Chrome for
-Android uses). Build on them; don't re-investigate them.
+Android uses), the last four by the plan's reviewer. Build on them; don't
+re-investigate them.
 
 | Claim | Result |
 | --- | --- |
@@ -59,6 +62,10 @@ Android uses). Build on them; don't re-investigate them.
 | Sandbox without `allow-top-navigation`: `top.location = …` throws `SecurityError`; `alert()` works with `allow-modals` | holds |
 | Navigation API in the iframe: `navigate` fires for `location.href = 'https://…'` and for link clicks, is cancelable, and gives the URL and `userInitiated` | holds |
 | Hash navigations inside the iframe add browser history entries; `history.back()` steps the iframe and fires no `popstate` in the parent; the parent's `navigation.entries()` doesn't grow; `navigation.traverseTo(libraryKey)` returns to the library in one step | holds |
+| After a top-level reload while such a page was open, `history.back()` is swallowed by the page's leftover entries; `navigation.traverseTo(navigation.entries()[index - 1].key)` lands on the library entry | holds |
+| A notice container moved into the open modal `<dialog>` is clickable there; a `popover` shown above a modal dialog is visible but not clickable; a `transform` on the dialog misplaces fixed-position children | holds |
+| A change in only an imported module triggers a service worker update; going offline in Playwright also blocks fetches made inside the worker; a sandboxed page calling `history.back()` can't move the top-level history | holds |
+| An undeclared windows-1252 page in an iframe of a UTF-8 parent is read as UTF-8 (hence the stored `charset`) | holds |
 
 ### Known limits (the owner has accepted these)
 
@@ -107,7 +114,8 @@ tests/
   tools/make-icons.cjs     WP6
   tools/screenshots.cjs    WP13
   README.md                WP1
-  out/                     gitignored: review notes, screenshots, throwaway files
+  out/                     gitignored: review notes, screenshots, every agent's scratch files
+.gitignore                 WP1   one added line: tests/out/
 .github/workflows/deploy-pages.yml   WP6
 docs/phone-check.md, AGENTS.md, docs/spec.md (three edits)   WP13
 ```
@@ -115,6 +123,22 @@ docs/phone-check.md, AGENTS.md, docs/spec.md (three edits)   WP13
 WP1 creates every `app/` file in this list, the unowned ones as stubs (a
 comment naming the owner, plus empty exports where section 5 names any), so
 nothing 404s and the precache list can be complete from the start.
+
+Test files and who owns them (a failing test goes to this package first):
+
+| Test file | Package |
+| --- | --- |
+| `unit/errors.test.js`, `e2e/smoke.e2e.cjs` | WP1 |
+| `unit/model.test.js`, `unit/html-check.test.js` | WP2 |
+| `unit/db.test.js`, `e2e/helpers.e2e.cjs` | WP3 |
+| `unit/inject.test.js`, `unit/page-shim.test.js` | WP4 |
+| `e2e/ui.e2e.cjs` | WP5 |
+| `e2e/install.e2e.cjs` | WP6 |
+| `e2e/sw.e2e.cjs` | WP7 |
+| `e2e/add-flow.e2e.cjs`, `e2e/picker.e2e.cjs` | WP8 |
+| `e2e/library.e2e.cjs` | WP9 |
+| `e2e/viewer.e2e.cjs` | WP10 |
+| `e2e/journey.e2e.cjs`, `e2e/update.e2e.cjs` | WP11 |
 
 ## 3. Constants: `js/config.js`
 
@@ -138,7 +162,8 @@ export const SETTINGS = {
   sort: 'library.sort',
   deleteBroken: 'deleteOriginal.broken',  // true once deleting has failed for a reason other than the owner saying no
   deleteLast: 'deleteOriginal.last',      // last position of the "delete the downloaded file" switch
-  fsaBroken: 'picker.fsaBroken',          // true once showOpenFilePicker has failed outright
+  fsaBroken: 'picker.fsaBroken',          // true: use the plain file input (set when showOpenFilePicker fails outright, or by the owner in the footer)
+  pickerLastError: 'picker.lastError',    // text of the last picker error, for diagnostics
 };
 ```
 
@@ -165,10 +190,20 @@ other; `app.js` wires events to functions.
   <section id="viewer" hidden></section>
   <div id="notices"></div>
   <div id="dialogs"></div>
+  <div id="start-failed" hidden></div>
+  <script>/* start guard: see below */</script>
   <script type="module" src="js/app.js"></script>
 </body>
 </html>
 ```
+
+- **Start guard.** A small inline classic script, so that a module failing to
+  load never leaves a blank screen. It records the first `error` and
+  `unhandledrejection` it sees on `window`, and if `window.__jdReady` isn't
+  true 8 seconds after load it fills `#start-failed` with "Junk Drawer
+  didn't start", what to try (close and reopen; if that fails, copy this and
+  give it to an agent), and the recorded error text and user agent in a
+  read-only `<textarea>`, and un-hides it. It uses nothing from `js/`.
 
 - `library.js` owns everything inside `#library`; `viewer.js` inside
   `#viewer`; `ui.js` inside `#notices` and `#dialogs`.
@@ -177,8 +212,11 @@ other; `app.js` wires events to functions.
   what keeps its scroll position.
 - CSS uses only the tokens `base.css` defines: `--jd-bg`, `--jd-surface`,
   `--jd-fg`, `--jd-muted`, `--jd-line`, `--jd-accent`, `--jd-danger`,
-  `--jd-radius`, `--jd-gap`, `--jd-bar-h`. Class names are prefixed by owner:
+  `--jd-radius`, `--jd-gap`, `--jd-bar-h`, and the layers `--jd-z-viewer`
+  (100) and `--jd-z-notices` (300). Class names are prefixed by owner:
   `ui-`, `lib-`, `view-`.
+- `base.css` includes `[hidden] { display: none !important; }`, so `hidden`
+  works on elements that have a `display` rule.
 
 ## 5. Module interfaces
 
@@ -192,20 +230,32 @@ export class JdError extends Error {   // new JdError(code, { cause, detail })
   code; cause; detail;
 }
 export function describe(err, ctx) -> { title, body, next, detail }   // sync
-export function getBuild() -> string            // fetches BUILD_PATH once; 'unknown' on failure
-export function environmentDetail() -> string   // build, user agent, persisted, picker support, flags
+export async function getBuild() -> string            // from BUILD_PATH; 'unknown' on failure
+export async function environmentDetail() -> string   // multi-line; never rejects
 ```
 
 - `ctx`: `{ file?: File | {name,type,size}, page?: {id,name} }`.
 - `title`/`body`/`next` are plain words for the owner; `next` is `''` when
-  there's nothing to do. `detail` is the copyable technical text: code, file
-  name/type/size, page name/id, `err.name: err.message` of the cause, build,
-  user agent, time.
+  there's nothing to do. `detail` is the technical text: code, file
+  name/type/size, page name/id, `err.name: err.message` of the cause, time.
+  It doesn't include the environment; whatever copies it appends
+  `await environmentDetail()` at copy time (`ui.js`'s `copyButton` does).
+- `getBuild()` caches only a successful answer. On a first launch the worker
+  doesn't control the window yet and the answer is `unknown`; a later call
+  gets the real one.
+- `environmentDetail()`: build, user agent, display mode (standalone or
+  browser), `navigator.storage.persisted()`, whether `showOpenFilePicker`
+  exists, whether a service worker controls the window, the names of this
+  origin's caches, and the `deleteBroken`, `fsaBroken` and `pickerLastError`
+  settings.
+- **`errors.js` is imported by `db.js`, so it also loads in the service
+  worker.** Nothing at its top level may touch `window`, `document` or
+  `navigator.storage`; use them only inside functions, guarded.
 - Any non-`JdError` is described as code `unexpected`.
 - Codes: `wrong-type`, `mhtml`, `unreadable`, `empty`, `not-html`,
   `storage-full`, `page-missing`, `page-unreadable`, `store-refused`,
   `delete-failed`, `delete-denied`, `picker-failed`, `sw-failed`,
-  `unexpected`.
+  `unexpected`. WP1's brief says what each message must tell the owner.
 
 ### `model.js` (WP2, pure, sync)
 
@@ -226,12 +276,16 @@ export function fileStem(fileName) -> string       // without .html/.htm
 ### `html-check.js` (WP2)
 
 ```js
-export async function checkFile(file) -> { bytes: ArrayBuffer, title: string | null, siblingRefs: string[] }
+export async function checkFile(file) -> { bytes: ArrayBuffer, charset: string | null, title: string | null, siblingRefs: string[] }
 ```
 
 Throws `JdError` with `wrong-type`, `mhtml`, `unreadable`, `empty` or
 `not-html`. `bytes` is what gets stored (identical to the file, except a
-UTF-16 file is converted to UTF-8 with a BOM).
+UTF-16 file is converted to UTF-8 with a BOM). `charset` is `null` (let the
+browser decide, the normal case) or `'windows-1252'` for a file that
+declares no encoding and isn't valid UTF-8; the service worker then sends it
+in the `Content-Type`, because an undeclared page in an iframe would
+otherwise be read as UTF-8 and show broken characters.
 
 ### `db.js` (WP3; must work in a window and in the service worker)
 
@@ -240,14 +294,14 @@ UTF-16 file is converted to UTF-8 with a BOM).
 //               addedAt: number, lastOpenedAt: number | null, replacedAt: number | null, size: number }
 export async function listPages() -> PageRecord[]
 export async function getPage(id) -> PageRecord | undefined
-export async function addPage({ name, fileName, tags, bytes }) -> PageRecord
-export async function replaceFile(id, { fileName, bytes }) -> PageRecord
+export async function addPage({ name, fileName, tags, bytes, charset }) -> PageRecord
+export async function replaceFile(id, { fileName, bytes, charset }) -> PageRecord
 export async function updatePage(id, patch) -> PageRecord        // patch keys: name, tags, pinned
 export async function recordOpen(id) -> PageRecord
 export async function removePage(id) -> void
-export async function getFileBytes(id) -> ArrayBuffer | undefined
+export async function getFile(id) -> { bytes: ArrayBuffer, charset: string | null } | undefined
 export async function getLocalEntries(pageId) -> [string, string][]
-export async function applyLocalOp(pageId, { op, key, value }) -> void   // op: 'set' | 'remove' | 'clear'
+export async function applyLocalOps(pageId, ops) -> void   // ops: [{ op: 'set' | 'remove' | 'clear', key, value }], applied in order in one transaction
 export async function listPageDatabases(pageId) -> string[]      // full prefixed names
 export async function getSetting(key, fallback) -> any
 export async function setSetting(key, value) -> void
@@ -258,7 +312,7 @@ Stores (version 1):
 | Store | Key | Value |
 | --- | --- | --- |
 | `pages` | `id` | `PageRecord` |
-| `files` | `id` | `{ id, bytes: ArrayBuffer }` |
+| `files` | `id` | `{ id, bytes: ArrayBuffer, charset: string \| null }` |
 | `pageLocal` | `[pageId, key]` | `{ pageId, key, value }` |
 | `settings` | `key` | `{ key, value }` |
 
@@ -273,10 +327,13 @@ Stores (version 1):
 ### `inject.js` (WP4, pure, sync)
 
 ```js
-export function doctypeEnd(bytes /* Uint8Array */) -> number
+export function doctypeEnd(bytes) -> number
+export function escapeForInlineScript(value) -> string           // JSON text that is safe inside <script> and ASCII only
 export function inlineScript(shimSource, boot) -> Uint8Array     // '<script>(…)(…);document.currentScript.remove()</script>', ASCII only
 export function buildPageParts(bytes, shimSource, boot) -> BlobPart[]   // [before, script, after]
 ```
+
+`bytes` may be an `ArrayBuffer` or a `Uint8Array` in both functions.
 
 ### `page-shim.js` (WP4)
 
@@ -297,6 +354,8 @@ body. Its source is ASCII only and never contains `</script` or `<!--`.
   connect(pageId) -> null | {
     entries: [string, string][],          // the page's localStorage as of now
     apply(op, key, value) -> void,        // 'set' | 'remove' | 'clear'; never throws
+    sessionEntries: [string, string][],   // the page's sessionStorage for this open
+    applySession(op, key, value) -> void, // same ops; memory only; never throws
     notify(type, data) -> void,           // never throws
   },
   pageError(pageId, code, detail) -> void // from the service worker's error document
@@ -304,7 +363,10 @@ body. Its source is ASCII only and never contains `</script` or `<!--`.
 ```
 
 - `connect` returns `null` unless `pageId` is the page the viewer has open.
-- `notify` types: `'ready'`; `'external-nav'` `{ url }`; `'store-refused'`
+  The page calls it again each time it reloads itself.
+- `notify` types: `'ready'`; `'external-nav'` `{ url }` (the page tried to
+  go to another site without a tap); `'missing-file'` `{ url }` (the page
+  tried to go to a file that sat beside it); `'store-refused'`
   `{ api: 'localStorage' | 'indexedDB', detail }`.
 - Everything crossing this boundary is a string, a plain object or an array.
 
@@ -314,19 +376,29 @@ body. Its source is ASCII only and never contains `</script` or `<!--`.
 export function showNotice({ title, body, next, detail, actions }) -> { dismiss() }   // sync
 export function reportError(err, ctx) -> void                      // sync: describe() then showNotice()
 export function hasOpenUi() -> boolean                             // sync: any dialog or notice showing
+export function copyButton({ label, getText }) -> HTMLElement      // sync: a button that copies; see below
 export async function confirmDialog({ title, body, confirmLabel, cancelLabel, danger }) -> boolean
 export async function choiceDialog({ title, body, list, choices }) -> string | null   // choices: [{ id, label, danger? }]; list: string[] shown as a list
 export async function actionSheet({ title, actions }) -> string | null                // actions: [{ id, label, danger? }]
 export async function detailsDialog({ title, name, tags, allTags, submitLabel }) -> { name, tags } | null
-export async function addedSheet({ title, canDelete, deleteDefault }) -> { deleteOriginal: boolean, open: boolean }
+export async function addedSheet({ title, canDelete, deleteDefault }) -> { deleteOriginal: boolean, open: boolean } | null
 ```
 
 - A notice stays until dismissed and has "copy details" when `detail` is
   given. `actions`: `[{ label, href }]` (opens in a new tab) or
   `[{ label, onClick }]`.
+- `copyButton`: copies `await getText()` followed by
+  `await environmentDetail()`, then reads "copied" for two seconds. If the
+  clipboard refuses, it shows the text in a read-only `<textarea>` after
+  itself. Notices use it for "copy details"; the library footer and the
+  viewer's error panel use it too, so nobody else writes clipboard code.
 - Dialogs are `<dialog>` elements opened with `showModal()`. Dismissing one
-  (back gesture, Escape) resolves as cancel: `false`, `null`, or
-  `{ deleteOriginal: false, open: false }`.
+  (back gesture, Escape, a tap outside a sheet) resolves as cancel: `false`
+  from `confirmDialog`, `null` from the others.
+- `detailsDialog` returns `tags` as the owner gave them: the chips that are
+  on, then the typed text split on commas, trimmed, empties dropped. It
+  doesn't normalise; the caller passes them through `parseTags`. (`ui.js`
+  imports nothing from `model.js`.)
 - `ui.js` creates `#notices` and `#dialogs` if they're missing.
 
 ### `picker.js` (WP8)
@@ -337,8 +409,14 @@ export async function canDeleteOriginal(handle) -> boolean
 export async function deleteOriginal(handle) -> void   // throws JdError('delete-denied' | 'delete-failed')
 ```
 
-Test seam: when `globalThis.__jdTest?.pickFile` is a function, `pickFile()`
-returns what it returns. Nothing else in the app reads `__jdTest`.
+Test seams, the only two places the app reads `__jdTest`:
+
+- when `globalThis.__jdTest?.pickFile` is a function, `pickFile()` returns
+  what it returns;
+- when `globalThis.__jdTest?.noBoot` is true, `app.js` sets
+  `window.__jdReady = true` and does nothing else (no init, no service
+  worker, no update handling), so a package's tests can drive its module
+  alone.
 
 ### `add-flow.js` (WP8)
 
@@ -360,7 +438,8 @@ export async function initLibrary() -> void     // idempotent
 // viewer.js
 export async function initViewer() -> void      // idempotent; defines the host object
 export async function openPage(id) -> void
-export function isViewerOpen() -> boolean       // sync
+export function isViewerOpen() -> boolean       // sync: true from the start of an open until the close has finished
+export async function whenSaved() -> void       // resolves when every localStorage write received so far is stored
 ```
 
 `app.js` exports nothing. It sets `window.__jdReady = true` when boot has finished. Tests wait
@@ -377,9 +456,11 @@ Fetch handling, in order:
    `respondWith`. The page gets the network as in a tab.
 2. `<scope>__jd/build`: `{"build": BUILD}` as JSON.
 3. `<scope>p/<pageId>/` (query ignored): the page document. Read
-   `getFileBytes(pageId)`; respond with
+   `getFile(pageId)`; respond with
    `new Blob(buildPageParts(bytes, pageShim.toString(), boot))`, status 200,
-   `Content-Type: text/html` (**no charset**), `Cache-Control: no-store`.
+   `Cache-Control: no-store`, and `Content-Type: text/html` with **no
+   charset** unless the stored `charset` isn't `null`, in which case
+   `text/html; charset=<it>`.
    If the file is missing or the read throws: an error document (status 404 or
    500) that shows a plain message and calls
    `parent[HOST_GLOBAL].pageError(pageId, 'page-missing' | 'page-unreadable', detail)`
@@ -402,16 +483,25 @@ Registration (in `app.js`):
 
 ## 7. History and the viewer
 
-- Boot: `history.replaceState({ jd: 'library' }, '')` unless the current state
-  is `{ jd: 'view' }`, in which case call `history.back()` (a reload while
-  viewing lands on the library).
+- Boot: if the current state is `{ jd: 'view' }` (the app was reloaded, or
+  Android discarded and restored it, while a page was open), go to the
+  top-level entry before it:
+  `const i = navigation.currentEntry.index; if (i > 0) navigation.traverseTo(navigation.entries()[i - 1].key); else history.replaceState({ jd: 'library' }, '')`.
+  A plain `history.back()` is **not** enough: if the page had made history
+  entries of its own, it gets swallowed by them (tested). In every other
+  case, `history.replaceState({ jd: 'library' }, '')`.
 - Open: remember `navigation.currentEntry.key` as the library key, then
   `history.pushState({ jd: 'view', pageId }, '')`, then create the iframe.
 - `popstate` with `{ jd: 'library' }` while the viewer is open: close it
   (remove the iframe) and dispatch `viewerClosed`.
 - `popstate` with `{ jd: 'view' }` while the viewer is closed: `history.back()`.
 - "library" button: `navigation.traverseTo(libraryKey)`; if `navigation` is
-  missing, `history.back()`.
+  missing, `history.back()`. If the traverse rejects, or 500 ms later the
+  viewer is still open, close the viewer directly and
+  `history.replaceState({ jd: 'library' }, '')`. The button must never do
+  nothing.
+- Only one open at a time: `openPage` sets an "opening" flag before its
+  first `await`, and a second call while opening or open is ignored.
 - Back gesture: the browser's own behaviour. It steps through the page's own
   history first, then reaches the library entry. This is the owner's choice.
 
@@ -438,13 +528,18 @@ Claude's cloud sessions.
 
 ```
 node tests/run.cjs                 # everything
-node tests/run.cjs --only <text>   # tests whose file or name contains <text>
+node tests/run.cjs --only <text>   # test FILES whose name contains <text> (several: --only db,helpers)
 node tests/run.cjs --unit | --e2e
 ```
 
-- Output is short by design: one line per failing test plus at most 12 lines
-  of its error, then `RESULT: PASS 41/41` or `RESULT: FAIL 3/41`. Exit code 0
-  only on PASS.
+- **Always run it with a 10-minute command timeout** (600000 ms on the Bash
+  tool); the default of two minutes is too short for a full run.
+- Output is short by design: `FAIL <file>: <test name>` per failing test plus
+  at most 12 lines of its error, then `RESULT: PASS 41/41 (38s)` or
+  `RESULT: FAIL 3/41 (52s)`. Exit code 0 only on PASS.
+- It can't hang: 20 s per e2e test, 30 s per unit file, test files run four
+  at a time, and it stops early after 10 failures or 8 minutes, still
+  printing `RESULT: FAIL … (stopped early: <why>)`.
 - The server picks a free port, serves the repo root (the app is at `/app/`,
   which also proves relative URLs), and by default stamps `sw.js` with build
   `t1` so tests exercise the production path. Each test gets a fresh browser
@@ -468,13 +563,21 @@ node tests/run.cjs --unit | --e2e
   ];
   ```
 
-  `t`: `{ context, server, appUrl, openApp(), helpers }`. `tests/README.md`
-  (WP1) documents the helpers: seeding pages through `db.js`, setting the
-  next picked file, getting the viewer's frame, dumping the database.
+  `t`: `{ context, server, appUrl, openApp(opts), helpers }`. Each test has
+  its own server instance, so tests running side by side can't disturb each
+  other's build stamp or overrides. `tests/README.md` (WP1) documents the
+  helpers: seeding pages through `db.js`, setting the next picked file,
+  getting the viewer's frame, dumping the database.
+- **`t.openApp({ boot: false })`** sets `__jdTest.noBoot` before the app
+  loads, so `app.js` does nothing. Every package's own tests use it and call
+  the idempotent `init…()` functions they need; that way they behave the
+  same before and after the real `app.js` exists. Only `journey` and
+  `update` (WP11) use the real boot, `t.openApp()`.
 - A package keeps its fixtures inside its own test files. `helpers.cjs` is
-  frozen after WP1; ask the orchestrator for additions.
-- E2E tests must pass both before and after `app.js` is real: call
-  `openApp()`, then the idempotent `init…()` you need, then use the DOM.
+  frozen after stage 2; ask the orchestrator for additions.
+- Requests to other sites must be routed in the test
+  (`context.route('https://example.test/**', …)`); nothing may depend on the
+  real internet.
 - Never start a server on a fixed port, and never leave a browser or server
   running.
 
@@ -492,3 +595,7 @@ node tests/run.cjs --unit | --e2e
   report.
 - Never use real files from `local/`. Tests write their own HTML.
 - Don't commit, push or start the dev server. The orchestrator commits.
+- Other agents share this working tree. Never run `git stash`,
+  `git checkout`, `git restore`, `git reset` or `git clean`, and never
+  delete a file you didn't create.
+- Scratch files go in `tests/out/` (gitignored), nowhere else in the repo.

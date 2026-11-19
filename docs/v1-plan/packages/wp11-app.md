@@ -15,14 +15,19 @@ turns them into the app.
 
 `app/js/app.js`, `tests/e2e/journey.e2e.cjs`, `tests/e2e/update.e2e.cjs`.
 
-You may not edit other packages' files. If a journey test exposes a bug in
-one, stop fixing, and list it in your report with the failing test's name,
-the file at fault and what you saw. The orchestrator sends it to a fix
-agent.
+You run alone and this is the first time the whole app runs together, so
+expect small faults in other packages' files. You may fix them: about 20
+lines at most per fix, each with a test that fails before and passes after,
+each listed under `DEVIATIONS` with the file and what was wrong. Anything
+larger, anything that changes a contract, or anything you can't pin down in
+a few minutes: stop, and list it under `PROBLEMS` with the failing test's
+name, the file at fault and what you saw. The orchestrator sends it to a
+fix agent.
 
 ## `app.js`
 
-Boot, in this order:
+If `globalThis.__jdTest?.noBoot` is true, set `window.__jdReady = true` and
+do nothing else. Otherwise boot, in this order:
 
 1. **Nothing fails silently.** `error` and `unhandledrejection` listeners on
    `window` that call `reportError`. (A page's own script errors happen in
@@ -30,11 +35,18 @@ Boot, in this order:
 2. `await initViewer()`, then `await initLibrary()`.
 3. **Wire events** on `document`: `addPage` calls `addPageFlow()`;
    `replaceFile` calls `replaceFlow(detail.id)`; `openPage` calls
-   `openPage(detail.id)`.
+   `openPage(detail.id)`. Keep a count of add and replace flows in flight
+   (increment before the call, decrement when its promise settles), and
+   ignore an `addPage` or `replaceFile` event while one is in flight.
 4. **Service worker.** If `navigator.serviceWorker` is missing, or
    `register('sw.js', { type: 'module', updateViaCache: 'none' })` rejects:
-   `reportError(new JdError('sw-failed', { cause }))`. Don't await
-   activation before showing the library.
+   `reportError(new JdError('sw-failed', { cause }))`. Also report
+   `sw-failed` if the **first** worker (no controller yet) goes to state
+   `redundant` while installing: that's a failed install, and without it no
+   page can open. A later worker failing to install is not reported: the
+   old one keeps working. Don't await activation before showing the
+   library. When the worker first takes control, dispatch `libraryChanged`
+   so the footer's build is no longer `unknown`.
 5. **Persistent storage.** `await navigator.storage.persist()` if it exists
    (ignore a rejection), then dispatch `libraryChanged` so the library's
    storage warning is current.
@@ -47,9 +59,18 @@ without losing anything.
 - On `controllerchange`: if there was a controller before, a new build has
   taken over: set `updatePending`. If there wasn't, this is the first
   install: just remember there is a controller now.
-- Apply a pending update with `location.reload()` only when it's safe:
-  `!isViewerOpen() && !hasOpenUi()`. Try on `controllerchange`, on
-  `viewerClosed`, on `libraryChanged`, and when the document becomes visible.
+- Apply a pending update only when it's **safe**: the viewer isn't open,
+  no dialog or notice is showing (`hasOpenUi()`), and **no add or replace
+  flow is in flight**. The last one matters: Android's file picker isn't a
+  dialog Junk Drawer can see, and there are moments inside a flow (after the
+  page is written, before the added sheet opens) when nothing is on screen.
+  Reloading then would drop the picked file or the delete-the-download
+  question.
+- To apply: `await whenSaved()` (a page may have written as it closed),
+  check "safe" again, then `location.reload()`.
+- Try on `controllerchange`, on `viewerClosed`, when a flow settles, when
+  the document becomes visible, and two seconds after any `libraryChanged`
+  (not straight away: flows dispatch it mid-way).
 - Ask for an update check (`registration.update()`, ignoring errors) at boot
   and each time the document becomes visible, at most once a minute.
 - Guard against a reload loop: apply at most one reload per page load.
@@ -105,7 +126,16 @@ evaluation):
   closes;
 - with a dialog open it does not reload; it does after the dialog closes
   and the next trigger fires;
-- first install causes no reload (count `load` events).
+- **an update that lands mid-add doesn't cut it short:** start an add, and
+  with the details dialog open bring in build `t2`; submit the dialog: the
+  added sheet still appears; answer it; only then does the app reload, and
+  the page is in the library;
+- a page's `localStorage` write made just before closing the viewer is
+  there after an update reload that follows the close;
+- a second `addPage` event while a flow is in flight opens no second
+  dialog;
+- first install causes no reload (count `load` events), and the footer's
+  build changes from `unknown` to `t1` without one.
 
 ## Done when
 

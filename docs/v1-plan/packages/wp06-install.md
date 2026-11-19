@@ -73,6 +73,8 @@ the `sed` and `grep` work on the stub's first line.
 
 ## Tests you write (`install.e2e.cjs`)
 
+Use `t.openApp({ boot: false })`.
+
 - the manifest is valid JSON with name "Junk Drawer", `display: standalone`,
   relative `start_url` and `scope`;
 - each icon in the manifest is served, is a PNG, and has the pixel size it

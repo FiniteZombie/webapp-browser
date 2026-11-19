@@ -49,6 +49,17 @@ list them in the final report so the owner can object.
 - **If deleting the download fails** for any reason other than the owner
   saying no, Junk Drawer stops offering it (the spec: "where it can't work,
   step 6 never appears"). A footer button turns the offer back on.
+- **The library's footer has a small troubleshooting block**: the build, a
+  "copy diagnostics" button, and a switch between the full file picker
+  (which can delete the download afterwards) and the simple one, in case
+  the full one misbehaves on the phone.
+- **A link in a page to a file that sat beside it** (`about.html`) shows a
+  message saying Junk Drawer doesn't have that file, rather than opening a
+  dead browser tab.
+- **A file with no declared encoding that isn't UTF-8** is shown as
+  windows-1252, which is what a browser tab would have guessed.
+- **If the app fails to start**, the screen says so and shows the error to
+  copy, instead of staying blank.
 - **Updates apply by themselves**: the app reloads once, only while the
   library is showing with no dialog or message open. The footer shows the
   build.
@@ -87,8 +98,9 @@ and produces wrong answers.
 1. Don't read source files, test files or package briefs. If you need to
    know something about the code, ask the agent that wrote it or spawn a
    reader with a narrow question.
-2. Run only `node tests/run.cjs` (its output is capped). Never `cat` a file
-   to "check" it; trust the gate.
+2. Run only `node tests/run.cjs`, **with a 10-minute timeout on the
+   command** (600000 ms). Its output is capped and it can't hang. Never
+   `cat` a file to "check" it; trust the gate.
 3. Never fix code yourself beyond a one-line change you can make without
    reading the file. Anything more goes to a fix agent.
 4. One fresh agent per package. Don't reuse an agent for a second package.
@@ -102,7 +114,9 @@ and produces wrong answers.
 1. Read the brief, the contract sections it names, and the files it names.
    Nothing else unless a test failure sends you there.
 2. Edit only the files the brief lists.
-3. Run tests with `--only`. Run the full suite once, at the end.
+3. Run their own test files with `--only`. In stages 2 and 3 never the
+   full suite (it contains other agents' half-written tests); in stages 4
+   and later, the full suite once at the end.
 4. If a contract is wrong or something outside your files is broken, stop
    and report it. Don't work around it.
 5. Report in the fixed format, 25 lines at most.
@@ -110,7 +124,8 @@ and produces wrong answers.
 ## The prompt for a package agent
 
 Use `subagent_type: "general-purpose"` and the model the stage table gives.
-Send exactly this, filling the three slots. Don't paste the brief or any
+Send exactly this, filling the slots (the test file names per package are in
+`contracts.md` section 2). Don't paste the brief or any
 code into the prompt.
 
 ```
@@ -120,30 +135,47 @@ You're building one package of Junk Drawer v1 in /home/user/webapp-browser
 Your brief: docs/v1-plan/packages/<file>.md
 Read it first, then read what it tells you to read, and only that.
 
+Where you are: a Linux container, Node 22, headless Chromium through
+Playwright (require('playwright') works from any directory). No phone, no
+real browser window, no internet for tests (route other sites in the test).
+Do the work yourself; don't spawn agents.
+
 Rules:
 - Edit only the files your brief lists. Other files are owned by agents
-  working at the same time as you.
+  working at the same time as you. (Your brief says so if you have any
+  leeway.)
 - docs/v1-plan/contracts.md is fixed. If it's wrong or lacks something you
   need, or a file you don't own is broken, stop and report; don't work
   around it.
-- Run tests with: node tests/run.cjs --only <text>. Run the whole suite once
-  when you think you're done. Don't start a dev server. Don't commit or push.
-- Stop any browser or server you started.
+- Tests: node tests/run.cjs --only <your test file names>, always with a
+  10-minute command timeout (600000 ms). <suite>
+- Other agents share this working tree. Never run git stash, checkout,
+  restore, reset or clean; never commit or push; never delete a file you
+  didn't create. Scratch files go in tests/out/ only.
+- Don't start a dev server. Stop any browser or server you started.
 <extra>
 
 Finish with exactly this report, 25 lines at most:
 STATUS: done | blocked | partial
 FILES: <files you created or changed>
-TESTS: <the RESULT line of your last full run> and <the RESULT line for your own tests>
+TESTS: <the RESULT line for your own tests> and, if you ran it, <the RESULT line of the full run>
 DEVIATIONS: <anything you did differently from the brief or contracts, or "none">
 PLACEHOLDERS: <labels, colours, wording you chose that the owner may want to change, or "none">
 PROBLEMS: <contract gaps, bugs you saw in files you don't own, anything you couldn't finish, or "none">
 ```
 
+`<suite>` is, for stages 1, 2 and 3: "Don't run the whole suite: it
+contains other agents' unfinished tests." For stages 4, 5 and 7 and for fix
+agents working alone: "Run the whole suite once when you think you're
+done."
+
 `<extra>` is empty unless this file or a previous report gives you
 something to pass on (for example a contract change made since the brief
 was written). For the review agents (WP12) drop the first two rules and the
 report format; their brief has its own.
+
+On the owner's Windows laptop, replace the "Where you are" paragraph with
+the real environment and add: "Read .agents/windows-tool-pitfalls.md first."
 
 ## Stages
 
@@ -153,7 +185,7 @@ passed.
 
 | Stage | Package | Brief | Model | Depends on |
 | --- | --- | --- | --- | --- |
-| 1 | WP1 scaffold and test harness | `wp01-scaffold.md` | sonnet | none |
+| 1 | WP1 scaffold and test harness | `wp01-scaffold.md` | opus | none |
 | 2 | WP2 library logic and file checks | `wp02-logic.md` | sonnet | WP1 |
 | 2 | WP3 storage layer | `wp03-db.md` | sonnet | WP1 |
 | 2 | WP4 page shim and injection | `wp04-shim.md` | opus | WP1 |
@@ -172,7 +204,9 @@ Why this shape: stage 1 creates every file as a stub plus the test harness,
 so stage 2's five agents can't collide and can each run their own tests.
 Stages 4 and 5 are single agents because they integrate everything and their
 tests drive the whole app; splitting them would have several agents
-debugging the same failures.
+debugging the same failures. For the same reason those two agents, working
+alone, are allowed small fixes in other packages' files (their briefs set
+the limit); check their `DEVIATIONS` for what they touched.
 
 For WP12, tell each reviewer which half of the brief is theirs ("you are
 WP12a" or "you are WP12b").
@@ -181,21 +215,29 @@ WP12a" or "you are WP12b").
 
 1. Read each report. Any `STATUS: blocked` or non-empty `PROBLEMS`: handle
    it (below) before going on.
-2. Run `node tests/run.cjs`. It must end `RESULT: PASS`.
+2. Run `node tests/run.cjs` (10-minute timeout). It must end
+   `RESULT: PASS`. This is the only full run in stages 1 to 3.
 3. `git status --short`: every changed file should belong to a package of
-   this stage (the layout in `contracts.md` section 2 says who owns what).
-   A file changed by a non-owner is a problem to resolve, not to commit.
+   this stage (the layout in `contracts.md` section 2 says who owns what),
+   or be listed under some report's `DEVIATIONS`. A file changed by a
+   non-owner without that is a problem to resolve, not to commit.
 4. Commit everything with a message naming the stage and packages, and push
    to the working branch (a cloud container is temporary; unpushed work can
    be lost). Never push to `main`.
 
 ## When something goes wrong
 
-- **Tests fail at a gate.** From the runner's output, work out which
-  package owns each failing test (the test file's name tells you). Spawn one
-  fix agent per owning package, same model as the package, with: the brief's
-  path, the failing test names, and the failure lines (30 at most). Fix
-  agents follow the same rules and report format.
+- **Tests fail at a gate.** Each failure line is
+  `FAIL <file>: <test name>`; the table in `contracts.md` section 2 maps
+  the file to its package. Spawn one fix agent per owning package, same
+  model as the package, with: the brief's path, the failing test names, and
+  the failure lines (30 at most). Fix agents follow the same rules and
+  report format. If several run at once, they keep to their own packages'
+  files.
+- **The run stopped early** (`stopped early: 10 failures` or the time
+  limit): something basic is broken, usually the app not starting. Send the
+  first three failures to the agent of the stage just finished before
+  anything else.
 - **A failing test belongs to one package but the fault is in another's
   file.** The fix agent will report that under `PROBLEMS`. Spawn a fix agent
   for the package that owns the faulty file, quoting the finding.
@@ -203,9 +245,11 @@ WP12a" or "you are WP12b").
   (this is the one file you do edit), and tell every agent it affects:
   running ones by message, later ones through `<extra>`. Record the change
   for the final report.
-- **Two rounds of fixes haven't cleared a failure.** Stop and ask the owner,
-  giving the test name, what was tried, and the failure lines. Don't weaken
-  or delete a test to get a pass, and don't skip one.
+- **Two rounds of fixes haven't cleared the same failing test.** Stop and
+  ask the owner, giving the test name, what was tried, and the failure
+  lines. (Count rounds per test, not per stage: an integration stage
+  turning up several unrelated small faults is normal.) Don't weaken or
+  delete a test to get a pass, and don't skip one.
 - **A spec rule turns out to be unbuildable** (the spec names this for
   IndexedDB privacy and backup): stop and ask the owner. Don't quietly drop
   it.

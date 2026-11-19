@@ -58,7 +58,10 @@ you looked, what you found.
 - any path where a page runs without the shim, or with the shim half
   applied (an exception part-way through), and so touches shared storage;
 - writes that can be lost or applied out of order: closing the viewer,
-  reopening quickly, a page reloading itself, two opens in a row;
+  reopening quickly, a page reloading itself, two opens in a row, an update
+  reload arriving just after a write (`whenSaved`);
+- an update reload that can fire in the middle of an add or replace, or
+  while Android's file picker is up;
 - a failed add or replace that leaves a half-written page; a remove that
   leaves a page's data behind, or deletes another page's;
 - the update path: anything that could delete or orphan data, serve a mix of
@@ -72,7 +75,9 @@ you looked, what you found.
   `register`, `import`);
 - page names, tags, file names or error text reaching `innerHTML`;
 - ways the viewer can strand the owner: a blank frame, a history state that
-  needs two backs, the "library" button doing nothing.
+  needs two backs, the "library" button doing nothing, the app reloaded or
+  restored by Android while a page that made its own history entries was
+  open.
 
 For each suspicion, confirm it before reporting: write a throwaway test
 under `tests/out/` and run it with Playwright, or trace the code until

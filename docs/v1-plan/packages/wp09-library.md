@@ -49,10 +49,19 @@ Layout, top to bottom:
 5. **Empty library:** one or two sentences on what Junk Drawer is for (a
    place for the HTML web apps Claude or Gemini made you) and an "add new
    page" button.
-6. **Footer:** the hint "press and hold a page for more"; "build <id>" from
-   `getBuild()`; a "copy diagnostics" button (copies
-   `environmentDetail()`); and, only when the `deleteBroken` setting is
-   true, a button "offer to delete downloaded files again" that clears it.
+6. **Footer:** the hint "press and hold a page for more", then a small
+   troubleshooting block:
+   - "build <id>" from `await getBuild()`, re-read on every render (on a
+     first launch it's `unknown` until the worker takes control);
+   - a "copy diagnostics" button: `copyButton` from `ui.js` with a
+     `getText` returning `'diagnostics'` (it appends the environment);
+   - only where `window.showOpenFilePicker` exists: a line saying which file
+     picker is in use and a button to switch. `fsaBroken` false: "file
+     picker: full (can delete the download afterwards)" / "use the simple
+     picker". True: "file picker: simple" / "use the full picker". The
+     button flips the setting;
+   - only when the `deleteBroken` setting is true: a button "offer to delete
+     downloaded files again" that clears it.
 
 State:
 
@@ -80,7 +89,8 @@ Action sheet (`actionSheet`, titled with the page's name):
 
 - "pin" or "unpin": `updatePage(id, { pinned })`.
 - "edit name and tags": `detailsDialog` with the current values and
-  `allTags`; on submit `updatePage`.
+  `allTags`; on submit `updatePage`, with the returned `tags` passed through
+  `parseTags`.
 - "replace file": dispatch `replaceFile` with the id.
 - "remove": `confirmDialog` (danger) saying "“<name>” and its saved data will
   be deleted for good"; on confirm `removePage(id)`.
@@ -91,7 +101,7 @@ All text goes in with `textContent`.
 
 ## Tests you write (`library.e2e.cjs`)
 
-`app.js` may still be a stub: call `openApp()`, then
+Use `t.openApp({ boot: false })`, then
 `page.evaluate(() => import('./js/library.js').then(m => m.initLibrary()))`,
 seed with `t.helpers.seedPage`, and act through the DOM. Listen for the
 events the library dispatches by adding a listener in the page.
@@ -120,7 +130,11 @@ events the library dispatches by adding a listener in the page.
 - storage warning shows when `navigator.storage.persisted` is stubbed to
   false and not when stubbed to true;
 - the footer shows the build; "offer to delete…" appears only with
-  `deleteBroken` set, and clears it;
+  `deleteBroken` set, and clears it; the picker switch flips `fsaBroken` and
+  its wording follows; it's absent when `showOpenFilePicker` is removed in
+  an init script;
+- tags typed as "Games, games , FUN" in the edit dialog are stored as
+  `games` and `fun`;
 - a page named `<img src=x onerror=alert(1)>` renders as text.
 
 ## Done when

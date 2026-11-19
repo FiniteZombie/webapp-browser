@@ -25,7 +25,10 @@ how to install (open the Pages URL in Chrome, menu, "Add to home screen" or
 
 1. The app opens from the home screen without browser bars and is called
    "Junk Drawer".
-2. Adding a page from Downloads works.
+2. Adding a page from Downloads works. If tapping "add new page" does
+   nothing or the picker comes back empty-handed, scroll to the bottom of
+   the library, tap "use the simple picker", and try again; note that you
+   had to.
 3. On the added sheet, is there a "delete the downloaded file" box? If yes:
    tick it, note the prompts Android shows, and check in the Files app that
    the download is gone.
@@ -48,7 +51,8 @@ how to install (open the Pages URL in Chrome, menu, "Add to home screen" or
 
 End with "If something's off": tap "copy diagnostics" in the library's
 footer (or "copy details" on an error) and paste it to an agent with the
-step number.
+step number. If the app shows "Junk Drawer didn't start", copy what's in the
+box on that screen instead.
 
 ## `tests/tools/screenshots.cjs`
 
@@ -57,8 +61,8 @@ pages and saves PNGs to `tests/out/screens/` at 412 by 915,
 `deviceScaleFactor: 2`, in light and dark: empty library, library with
 pinned and tagged pages and one chip on, the action sheet, the details
 dialog, the added sheet with the delete box, the viewer, an error notice,
-the remove confirmation. Prints the paths. Run it and check each file
-exists and isn't blank.
+the remove confirmation, the footer's troubleshooting block. Prints the
+paths. Run it and check each file exists and isn't blank.
 
 ## `AGENTS.md`
 

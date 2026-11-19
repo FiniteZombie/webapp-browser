@@ -55,10 +55,16 @@
 5. **Binary**: a known signature at the start (PNG, JPEG, GIF, PDF, ZIP,
    gzip, RIFF, `\x00\x00\x00` ISO media) or a NUL byte in the first 4096
    bytes gives `not-html`.
-6. **Decode** as UTF-8. If the first 4096 characters hold a
-   `<meta charset=…>` or `http-equiv` content-type naming another encoding
-   that `TextDecoder` accepts, decode again with it. The decoded text is only
-   for inspection; `bytes` stays as it is.
+6. **Decode** for inspection (`bytes` stays as it is), and settle
+   `charset`:
+   - starts with a UTF-8 BOM: decode as UTF-8; `charset` is `null`;
+   - the first 4096 characters (decoded as latin1 for this look) hold a
+     `<meta charset=…>` or an `http-equiv` content-type naming an encoding
+     `TextDecoder` accepts: decode with it; `charset` is `null` (the page
+     declares it, the browser will honour it);
+   - otherwise try `new TextDecoder('utf-8', { fatal: true })`: if it
+     decodes, `charset` is `null`; if it throws, decode as `windows-1252`
+     and `charset` is `'windows-1252'`.
 7. **MHTML content**: text starting with `From:` or `MIME-Version:` and
    containing `multipart/related` in the first 2000 characters gives `mhtml`.
 8. Only whitespace gives `empty`.
@@ -79,6 +85,7 @@
     `/img/x.png` count; `https://…`, `data:…`, `blob:…` don't.
 
 Every `JdError` carries `detail` with the file's name, type and size.
+`model.js` and `html-check.js` must not import `ui.js`.
 
 ## Tests you write
 
@@ -92,8 +99,10 @@ filter with zero, one and two tags.
 including a PNG renamed `.html`, MHTML content named `.html`, a `.mhtml`
 name, an empty file, a whitespace-only file, plain text with no tags; title
 from `<title>`, whitespace-collapsed, and `null` without one; a windows-1252
-file with a declared charset gives the right title; a UTF-16LE file is
-converted and still gives its title; sibling references found and absolute,
+file with a declared charset gives the right title and `charset: null`; an
+undeclared windows-1252 file (a lone `0xE9` byte) gives the right title and
+`charset: 'windows-1252'`; undeclared valid UTF-8 gives `null`; a UTF-16LE
+file is converted and still gives its title; sibling references found and absolute,
 `data:`, `#` and `//` ones ignored; absolute `<base href>` gives none.
 
 ## Done when

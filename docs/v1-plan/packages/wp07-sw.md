@@ -36,11 +36,14 @@ fetch order and lifecycle. Details:
   `new URL(PAGE_PATH, self.registration.scope)`. Match
   `<base><pageId>/` exactly (one path segment, trailing slash, any query).
   `boot = { pageId, hostGlobal: HOST_GLOBAL, dbPrefix: PAGE_DB_PREFIX + pageId + ':', quotaChars: LOCAL_QUOTA_CHARS }`.
+  `getFile(pageId)` gives `{ bytes, charset }`; send the charset in the
+  `Content-Type` only when it isn't `null` (contracts section 6).
 - **Error document:** a tiny standalone HTML page (no shim) with a plain
   sentence ("Junk Drawer couldn't load this page") and an inline script that
   calls `parent[HOST_GLOBAL].pageError(pageId, code, detail)` in a `try`.
-  Build its script with the same escaping as `inlineScript`
-  (`JSON.stringify` with `<` and non-ASCII escaped). `Cache-Control: no-store`.
+  Put its values into the script with `escapeForInlineScript` from
+  `inject.js`. `Content-Type: text/html; charset=utf-8`,
+  `Cache-Control: no-store`.
 - **App files, stamped:** `caches.open(current).match(request, { ignoreSearch: true })`;
   on a miss, `fetch(request)`. Navigation requests for the scope root or
   `index.html` get the cached `index.html`.
@@ -53,14 +56,14 @@ fetch order and lifecycle. Details:
 
 ## Tests you write (`sw.e2e.cjs`)
 
-`app.js` may still be a stub while you work; your tests must not depend on
-the viewer. Where a page has to be shown, the test itself defines a minimal
-host on the app window (an object under `HOST_GLOBAL` whose `connect`
-returns `{ entries, apply, notify }` backed by a `Map`), registers the worker
-if the app hasn't
-(`navigator.serviceWorker.register('sw.js', { type: 'module', updateViaCache: 'none' })`,
-then `navigator.serviceWorker.ready`), seeds a page with `t.helpers.seedPage`
-and appends an iframe pointing at `p/<id>/`.
+Use `t.openApp({ boot: false })` in every test, so the app itself does
+nothing (no viewer, no self-reload on update) now or after later stages
+land. Register the worker with `t.helpers.ensureWorker(page)`. Where a page
+has to be shown, the test defines a minimal host on the app window (an
+object under `HOST_GLOBAL` whose `connect` returns
+`{ entries, apply, sessionEntries, applySession, notify }` backed by `Map`s,
+plus `pageError`), seeds a page with `t.helpers.seedPage` and appends an
+iframe pointing at `p/<id>/`.
 
 - `__jd/build` answers the stamped build; with `server.setBuild(null)` it
   answers `dev`;
@@ -76,7 +79,8 @@ and appends an iframe pointing at `p/<id>/`.
 - two pages each create an IndexedDB database with the same name and don't
   see each other's data;
 - a windows-1252 page with a declared charset renders its accented title
-  correctly;
+  correctly; a page stored with `charset: 'windows-1252'` and no declaration
+  does too, and its response says `charset=windows-1252`;
 - an unknown page id gets the error document and the host's `pageError` is
   called with `page-missing`;
 - `p/<id>/other.js` gets a 404;
@@ -96,4 +100,5 @@ and appends an iframe pointing at `p/<id>/`.
 
 ## Done when
 
-`node tests/run.cjs --only sw` passes and the whole suite still passes.
+`node tests/run.cjs --only sw` passes. Don't run the whole suite: other
+agents' half-written tests are in it this stage.
