@@ -1,14 +1,16 @@
 # webapp-browser
 
-**webapp-browser** is a PWA the owner installs on an Android phone from
-GitHub Pages (`https://finitezombie.github.io/webapp-browser/`). It lists the
-HTML files the owner has downloaded on the phone and gives a UI for browsing
-and opening them. No backend.
+**webapp-browser** is the repo for **Junk Drawer**, a PWA the owner installs
+on an Android phone from GitHub Pages
+(`https://finitezombie.github.io/webapp-browser/`). The owner adds HTML web
+apps they've downloaded; Junk Drawer keeps its own copy of each and gives a
+library for finding and using them. No backend.
 
 ## Where we are
 
-The repo has its git, editor and deploy setup and no app yet. Another agent
-is writing the spec; build from that, not from this file.
+The repo has its git, editor and deploy setup and no app yet. What the app
+does is in [`docs/spec.md`](docs/spec.md); build from that, not from this
+file.
 
 ## Stack
 
