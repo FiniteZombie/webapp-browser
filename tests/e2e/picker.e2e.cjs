@@ -55,6 +55,30 @@ async function pickThroughInput(page, file) {
   return page.evaluate(() => window.__pick);
 }
 
+// Starts pickFile() through the input, waits for the chooser, leaves it open.
+async function openChooser(page) {
+  const [chooser] = await Promise.all([
+    page.waitForEvent('filechooser', { timeout: 5000 }),
+    page.evaluate(() => {
+      window.__settled = false;
+      window.__pick = window.__picker.pickFile().then(
+        (v) => { window.__settled = true; return v === null ? 'null' : 'value'; },
+        (e) => { window.__settled = true; return 'error:' + e.name; },
+      );
+      return true;
+    }),
+  ]);
+  return chooser;
+}
+
+// Waits up to `ms` for pickFile() to settle; 'pending' if it never does.
+function settledWithin(page, ms) {
+  return page.evaluate((ms) => Promise.race([
+    window.__pick,
+    new Promise((r) => setTimeout(() => r('pending'), ms)),
+  ]), ms);
+}
+
 const settings = async (t, page) => (await t.helpers.dbDump(page)).settings;
 
 module.exports = [
@@ -121,5 +145,39 @@ module.exports = [
       multiple: false, excludeAcceptAllOption: false,
       types: [{ description: 'HTML pages', accept: { 'text/html': ['.html', '.htm'] } }],
     });
+  } },
+
+  { name: 'cancelling the file input (cancel event) resolves null and removes the input', run: async (t) => {
+    const page = await stubPicker(t, 'remove');
+    const chooser = await openChooser(page);
+    await chooser.element().dispatchEvent('cancel');
+    assert.equal(await settledWithin(page, 3000), 'null');
+    assert.equal(await page.locator('input[type=file]').count(), 0, 'the input is removed afterwards');
+  } },
+
+  { name: 'cancelled with no cancel event: focus coming back settles null after a grace period', run: async (t) => {
+    const page = await stubPicker(t, 'remove');
+    await openChooser(page);
+    // Some Android versions close the chooser without firing cancel; all the
+    // page sees is the window getting focus back.
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+    assert.equal(await page.evaluate(() => window.__settled), false, 'not settled at once: change may still be on its way');
+    assert.equal(await settledWithin(page, 5000), 'null', 'pickFile must not stay pending forever');
+    assert.equal(await page.locator('input[type=file]').count(), 0, 'the input is removed afterwards');
+  } },
+
+  { name: 'cancelled with no cancel event: the page becoming visible again settles null', run: async (t) => {
+    const page = await stubPicker(t, 'remove');
+    await openChooser(page);
+    await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+    assert.equal(await settledWithin(page, 5000), 'null');
+  } },
+
+  { name: 'a file chosen just after focus returns still comes back', run: async (t) => {
+    const page = await stubPicker(t, 'remove');
+    const chooser = await openChooser(page);
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+    await chooser.setFiles({ name: 'late.html', mimeType: 'text/html', buffer: Buffer.from('<p>late</p>') });
+    assert.equal(await settledWithin(page, 5000), 'value');
   } },
 ];

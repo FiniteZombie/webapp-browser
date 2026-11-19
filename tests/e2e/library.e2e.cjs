@@ -280,6 +280,42 @@ module.exports = [
     assert.equal(dump.local.some((r) => r.pageId === rec.id), false);
   } },
 
+  { name: 'remove never touches the downloaded file: the fake handle sees no remove()', run: async (t) => {
+    const page = await open(t);
+    await t.helpers.setNextPick(page, { name: 'kept.html', html: '<title>kept</title><p>k</p>', withHandle: true });
+    await page.evaluate(() => import('./js/add-flow.js').then((m) => {
+      window.__addRes = undefined;
+      m.addPageFlow().then((v) => { window.__addRes = v; });
+    }));
+    const add = page.locator('#dialogs dialog[open]', { hasText: 'add a page' });
+    await add.waitFor();
+    await add.locator('button[type=submit]').click();
+    const done = page.locator('#dialogs dialog[open]', { hasText: 'back to library' });
+    await done.waitFor();
+    await btn(done, 'back to library').click(); // the delete box stays unticked
+    await page.waitForFunction(() => window.__addRes !== undefined);
+    const res = await page.evaluate(() => window.__addRes);
+    assert.equal(res.status, 'added');
+    await page.evaluate((id) => import('./js/db.js').then((db) =>
+      db.applyLocalOps(id, [{ op: 'set', key: 'k', value: 'v' }])), res.pageId);
+    await page.evaluate(() => { window.__jdTest.handleLog.length = 0; });
+    let dump = await t.helpers.dbDump(page);
+    assert.equal(dump.pages.length, 1);
+    assert.equal(dump.local.some((r) => r.pageId === res.pageId), true);
+
+    await row(page, 'kept').click({ button: 'right' });
+    await btn(sheet(page), 'remove').click();
+    await btn(sheet(page), 'remove').click();
+    await page.waitForFunction(() => document.querySelectorAll('.lib-row').length === 0);
+    dump = await t.helpers.dbDump(page);
+    assert.equal(dump.pages.length, 0);
+    assert.equal(dump.files.some((f) => f.id === res.pageId), false);
+    assert.equal(dump.local.some((r) => r.pageId === res.pageId), false);
+    const log = await page.evaluate(() => window.__jdTest.handleLog.map((e) => e.method));
+    assert.ok(!log.includes('remove'), `handle log: ${log.join()}`);
+    assert.deepEqual(log, []);
+  } },
+
   { name: 'a re-render keeps the scroll position', run: async (t) => {
     const page = await open(t);
     for (let i = 0; i < 40; i++) await t.helpers.seedPage(page, { name: `page ${String(i).padStart(2, '0')}` });

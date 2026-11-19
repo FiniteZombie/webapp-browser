@@ -49,6 +49,12 @@ export async function pickFile() {
   return pickWithInput();
 }
 
+// How long after the page gets focus back (or becomes visible) a pick with no
+// file counts as cancelled. Chrome fires `cancel` on the input, but some
+// Android versions close the chooser without it; `change` can also arrive a
+// moment after focus, hence the wait.
+const RETURN_GRACE_MS = 1500;
+
 function pickWithInput() {
   return new Promise((resolve) => {
     const input = document.createElement('input');
@@ -56,17 +62,31 @@ function pickWithInput() {
     input.accept = '.html,.htm,text/html';
     input.hidden = true;
     let done = false;
+    let timer = 0;
+    const chosen = () => {
+      const file = input.files && input.files[0];
+      return file ? { file, handle: null } : null;
+    };
     const finish = (value) => {
       if (done) return;
       done = true;
+      clearTimeout(timer);
+      window.removeEventListener('focus', onReturn);
+      document.removeEventListener('visibilitychange', onReturn);
       input.remove();
       resolve(value);
     };
-    input.addEventListener('change', () => {
-      const file = input.files && input.files[0];
-      finish(file ? { file, handle: null } : null);
-    });
+    // Never stay pending: a pending pick would hold the app's flow lock (no
+    // add, no update) for the rest of the session.
+    function onReturn() {
+      clearTimeout(timer);
+      if (document.visibilityState === 'hidden') return;
+      timer = setTimeout(() => finish(chosen()), RETURN_GRACE_MS);
+    }
+    input.addEventListener('change', () => finish(chosen()));
     input.addEventListener('cancel', () => finish(null));
+    window.addEventListener('focus', onReturn);
+    document.addEventListener('visibilitychange', onReturn);
     document.body.appendChild(input);
     input.click();
   });

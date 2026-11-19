@@ -99,7 +99,7 @@ test('updatePage ignores unknown keys; recordOpen increments', async () => {
 });
 
 test('local entries: set, overwrite, remove, clear', async () => {
-  const id = 'local-1';
+  const id = (await add('local-1')).id;
   eq(await db.getLocalEntries(id), []);
   await db.applyLocalOps(id, [{ op: 'set', key: 'a', value: '1' }, { op: 'set', key: 'b', value: '2' }]);
   eq(await db.getLocalEntries(id), [['a', '1'], ['b', '2']]);
@@ -113,23 +113,35 @@ test('local entries: set, overwrite, remove, clear', async () => {
 });
 
 test('local ops apply in order in one call', async () => {
-  const id = 'local-2';
+  const id = (await add('local-2')).id;
   await db.applyLocalOps(id, [{ op: 'set', key: 'a', value: '1' }, { op: 'clear' }, { op: 'set', key: 'b', value: '2' }]);
   eq(await db.getLocalEntries(id), [['b', '2']]);
 });
 
 test('two pages with the same key are separate; clear touches only one', async () => {
-  await db.applyLocalOps('pg-x', [{ op: 'set', key: 'state', value: 'X' }]);
-  await db.applyLocalOps('pg-y', [{ op: 'set', key: 'state', value: 'Y' }]);
-  eq(await db.getLocalEntries('pg-x'), [['state', 'X']]);
-  eq(await db.getLocalEntries('pg-y'), [['state', 'Y']]);
-  await db.applyLocalOps('pg-x', [{ op: 'clear' }]);
-  eq(await db.getLocalEntries('pg-x'), []);
-  eq(await db.getLocalEntries('pg-y'), [['state', 'Y']]);
+  const x = (await add('pg-x')).id;
+  const y = (await add('pg-y')).id;
+  await db.applyLocalOps(x, [{ op: 'set', key: 'state', value: 'X' }]);
+  await db.applyLocalOps(y, [{ op: 'set', key: 'state', value: 'Y' }]);
+  eq(await db.getLocalEntries(x), [['state', 'X']]);
+  eq(await db.getLocalEntries(y), [['state', 'Y']]);
+  await db.applyLocalOps(x, [{ op: 'clear' }]);
+  eq(await db.getLocalEntries(x), []);
+  eq(await db.getLocalEntries(y), [['state', 'Y']]);
+});
+
+test('applyLocalOps after removePage, or for an unknown page, writes nothing', async () => {
+  const rec = await add('gone');
+  await db.applyLocalOps(rec.id, [{ op: 'set', key: 'k', value: 'v' }]);
+  await db.removePage(rec.id);
+  await db.applyLocalOps(rec.id, [{ op: 'set', key: 'late', value: '1' }, { op: 'set', key: 'late2', value: '2' }]);
+  eq(await db.getLocalEntries(rec.id), []);
+  await db.applyLocalOps('never-existed', [{ op: 'set', key: 'k', value: 'v' }]);
+  eq(await db.getLocalEntries('never-existed'), []);
 });
 
 test('a failing local op batch changes nothing', async () => {
-  const id = 'local-3';
+  const id = (await add('local-3')).id;
   await db.applyLocalOps(id, [{ op: 'set', key: 'k', value: 'v' }]);
   await rejects(db.applyLocalOps(id, [{ op: 'set', key: 'k', value: 'changed' }, { op: 'bogus' }]));
   eq(await db.getLocalEntries(id), [['k', 'v']]);

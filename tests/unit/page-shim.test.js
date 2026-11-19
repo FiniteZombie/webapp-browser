@@ -38,7 +38,7 @@ async function until(check, ms = 3000, what = 'condition') {
 // a script in its <head>.
 function pageHtml(fn, arg) {
   return '<!doctype html><html lang="xx"><head><meta charset="utf-8"><title>t</title><script>' +
-    'window.R = {}; try { (' + fn.toString() + ')(window.R, ' + JSON.stringify(arg === undefined ? null : arg) + '); }' +
+    'window.R = {}; try { (' + fn.toString() + ')(window.R, ' + JSON.stringify(arg === undefined ? null : arg).replace(/</g, '\\u003c') + '); }' +
     ' catch (e) { window.R.error = String((e && e.stack) || e); }' +
     '</scr' + 'ipt></head><body><p>page</p></body></html>';
 }
@@ -410,4 +410,150 @@ within('navigation: other sites and missing files are stopped, hashes are not', 
   await delay(100);
   eq(f.rec.notify.length, count, 'hash change intercepted');
   assert(f.win.R && typeof f.win.R.go === 'function', 'page state kept after hash');
+});
+
+// A blob:, about: or filesystem: document has the page's origin, so without
+// the shim it would get the real storage and every database by its real name.
+const LEAK_DOC = '<!doctype html><html><head><script>' +
+  'try { location.protocol === "blob:" && opener && opener.parent && (opener.parent.__shimPopupRan = (opener.parent.__shimPopupRan || 0) + 1); } catch (e) {}' +
+  'localStorage.setItem("leak", "1"); sessionStorage.setItem("leakS", "1");' +
+  'window.R = { mode: document.compatMode, scripts: document.scripts.length };' +
+  'var q = indexedDB.open("bd"); q.onsuccess = function () { window.R.dbName = q.result.name; q.result.close(); window.R.done = true; };' +
+  '</scr' + 'ipt></head><body><p id="blobdoc">blob doc</p></body></html>';
+
+async function dropRealDb(name) {
+  await new Promise((r) => { const q = indexedDB.deleteDatabase(name); q.onsuccess = q.onerror = q.onblocked = () => r(); });
+}
+
+within('a blob: document the frame goes to gets the shim too', async () => {
+  try {
+    const f = await load((R, doc) => {
+      R.idb = () => new Promise((res) => {
+        const q = indexedDB.open('rd');
+        q.onsuccess = () => { const n = q.result.name; q.result.close(); res(n); };
+      });
+      R.go = (how) => {
+        const u = URL.createObjectURL(new Blob([doc], { type: 'text/html' }));
+        if (how === 'replace') location.replace(u); else location.href = u;
+        URL.revokeObjectURL(u);
+      };
+    }, { arg: LEAK_DOC });
+    // A reload of a blob: document that has the shim already: let through,
+    // and not shimmed twice.
+    const start = f.frame.contentDocument;
+    f.win.location.reload();
+    await until(() => f.frame.contentDocument !== start && f.win.R && f.win.R.idb, 4000, 'the reload');
+    eq(await f.win.R.idb(), 'rd');
+    const names = (await indexedDB.databases()).map((d) => d.name);
+    assert(names.includes(f.boot.dbPrefix + 'rd'), 'reloaded page database: ' + names);
+    eq(f.rec.connects, 2, 'connects after the reload');
+    f.rec.notify.length = 0;
+
+    const first = f.frame.contentDocument;
+    f.win.R.go('assign');
+    await until(() => f.frame.contentDocument !== first && f.win.R && f.win.R.done, 4000, 'the blob document');
+    const R = f.win.R;
+    eq(f.win.document.getElementById('blobdoc').textContent, 'blob doc');
+    eq(R.mode, 'CSS1Compat', 'standards mode in the blob document');
+    eq(R.scripts, 1, 'the shim script removed');
+    eq(R.dbName, 'bd');
+    eq(f.rec.apply, [['set', 'leak', '1']]);
+    eq(f.rec.session, [['set', 'leakS', '1']]);
+    eq(f.rec.notify, [['ready']]);
+    eq(f.rec.connects, 3);
+    realStorageEmpty();
+    const real = (await indexedDB.databases()).map((d) => d.name);
+    assert(!real.includes('bd'), 'an unprefixed database exists: ' + real);
+    assert(real.includes(f.boot.dbPrefix + 'bd'), 'prefixed database missing: ' + real);
+  } finally {
+    window.localStorage.clear(); window.sessionStorage.clear();
+    await dropRealDb('bd');
+  }
+});
+
+within('about:blank and script-capable XML blobs are not loaded in the frame', async () => {
+  const f = await load((R) => {
+    R.go = (u) => { location.href = u; };
+    R.svg = () => URL.createObjectURL(new Blob(['<svg xmlns="http://www.w3.org/2000/svg"><script>localStorage.setItem("leak","1")</scr' + 'ipt></svg>'], { type: 'image/svg+xml' }));
+    R.text = () => URL.createObjectURL(new Blob(['plain'], { type: 'text/plain' }));
+  });
+  const win = f.win;
+  const doc = f.frame.contentDocument;
+  const url = win.location.href;
+  win.R.go('about:blank');
+  await delay(300);
+  assert(f.frame.contentDocument === doc, 'about:blank: document replaced');
+  win.R.go(win.R.svg());
+  await delay(300);
+  assert(f.frame.contentDocument === doc, 'svg: document replaced');
+  eq(f.win.location.href, url);
+  realStorageEmpty();
+  // A blob that can't run scripts loads as usual.
+  win.R.go(win.R.text());
+  await until(() => f.frame.contentDocument !== doc, 3000, 'the text blob');
+});
+
+within('window.open and links: blob: windows refused, blank windows get the shim', async () => {
+  window.__shimPopupRan = 0;
+  const popups = [];
+  try {
+    const f = await load((R, doc) => {
+      R.blob = () => URL.createObjectURL(new Blob([doc], { type: 'text/html' }));
+    }, { arg: LEAK_DOC });
+    const w = f.win;
+    eq(w.open(w.R.blob()), null, 'window.open(blob)');
+    eq(w.open(w.R.blob(), 'named', 'noopener'), null, 'window.open(blob, name, noopener)');
+    const a = w.document.createElement('a');
+    a.href = w.R.blob();
+    a.target = '_blank';
+    a.click();                        // never added to the document
+    w.document.body.append(a);
+    a.click();                        // in the document
+    a.rel = 'noopener';
+    a.dispatchEvent(new w.MouseEvent('click', { bubbles: true, cancelable: true }));
+
+    const p = w.open('');
+    assert(p, 'blank window refused (popups blocked?)');
+    popups.push(p);
+    p.document.write(LEAK_DOC);
+    p.document.close();
+    await until(() => p.R && p.R.done, 3000, 'the blank window script');
+    eq(p.R.dbName, 'bd');
+    eq(p.localStorage instanceof p.Storage, true, 'instanceof Storage in the blank window');
+    eq(p.localStorage.getItem('leak'), '1');
+    eq(w.localStorage.getItem('leak'), '1', 'one localStorage for both');
+    const nested = p.open(p.URL.createObjectURL(new p.Blob([LEAK_DOC], { type: 'text/html' })));
+    eq(nested, null, 'window.open(blob) from the blank window');
+    await delay(400);
+    eq(window.__shimPopupRan, 0, 'a blob window ran');
+    eq(f.rec.apply, [['set', 'leak', '1']]);
+    eq(f.rec.session, [['set', 'leakS', '1']]);
+    realStorageEmpty();
+    const real = (await indexedDB.databases()).map((d) => d.name);
+    assert(!real.includes('bd'), 'an unprefixed database exists: ' + real);
+  } finally {
+    for (const p of popups) p.close();
+    window.localStorage.clear(); window.sessionStorage.clear();
+    await dropRealDb('bd');
+  }
+});
+
+within('location.replace to a blob: document gets the shim too', async () => {
+  try {
+    const f = await load((R, doc) => {
+      R.go = () => location.replace(URL.createObjectURL(new Blob([doc], { type: 'text/html; charset=utf-8' })));
+    }, { arg: LEAK_DOC });
+    const first = f.frame.contentDocument;
+    const len = f.win.history.length;
+    f.win.R.go();
+    await until(() => f.frame.contentDocument !== first && f.win.R && f.win.R.done, 4000, 'the blob document');
+    eq(f.win.history.length, len, 'replaced, not pushed');
+    eq(f.win.document.characterSet, 'UTF-8');
+    eq(f.rec.apply, [['set', 'leak', '1']]);
+    realStorageEmpty();
+    assert(!(await indexedDB.databases()).some((d) => d.name === 'bd'), 'an unprefixed database exists');
+  } finally {
+    window.localStorage.clear(); window.sessionStorage.clear();
+    await dropRealDb('bd');
+  }
 });

@@ -83,14 +83,40 @@ function flush(pageId) {
   } catch (err) {
     p = Promise.reject(err);
   }
-  p.catch((err) => {
+  p.catch(async (err) => {
     const s = current;
-    if (s && s.id === pageId) refused(s, 'localStorage', err);
-    else console.error(err);
+    if (s && s.id === pageId) {
+      writeFailed(s, err);
+      await resync(s, w);
+    } else {
+      console.error(err);
+    }
   }).finally(() => {
     w.inFlight = false;
     flush(pageId);
   });
+}
+
+function replay(map, o) {
+  if (o.op === 'set') map.set(o.key, o.value);
+  else if (o.op === 'remove') map.delete(o.key);
+  else if (o.op === 'clear') map.clear();
+}
+
+// After a batch was refused, the open page's Map must match the store again,
+// so its own reloads (connect) don't see writes that are gone. Ops still
+// waiting to be written are replayed on top, since they'll be tried next.
+async function resync(s, w) {
+  let entries;
+  try {
+    entries = await getLocalEntries(s.id);
+  } catch (err) {
+    console.error(err);
+    return;
+  }
+  s.local.clear();
+  for (const [k, v] of entries) s.local.set(k, v);
+  for (const o of w.pending) replay(s.local, o);
 }
 
 export function whenSaved() {
@@ -104,6 +130,21 @@ function refused(s, api, cause, detail) {
   if (current !== s || s.refused.has(api)) return;
   s.refused.add(api);
   reportError(new JdError('store-refused', { cause, detail: detail || `api: ${api}` }), { page: s.page });
+}
+
+// A batch of localStorage writes was refused by the store: once per open, say
+// that the recent changes weren't saved.
+function writeFailed(s, cause) {
+  if (current !== s || s.refused.has('localStorage-write')) return;
+  s.refused.add('localStorage-write');
+  const err = new JdError('store-refused', { cause, detail: 'api: localStorage (write to Junk Drawer’s store failed)' });
+  const d = describe(err, { page: s.page });
+  showNotice({
+    ...d,
+    body: `The phone refused to save the data for ${quote(s.page.name)}. Your recent changes in it weren’t saved and won’t be there the next time you open it.`,
+    next: 'Free some space on the phone, then open the page again.',
+  });
+  console.error(err);
 }
 
 function onNotify(s, type, data) {
@@ -352,29 +393,51 @@ function closeDirectly() {
   history.replaceState({ jd: 'library' }, '');
 }
 
+// True when the library entry is the top-level entry just before this one.
+// (history.go counts the removed iframe's entries too, so it can't be used.)
+function libraryIsJustBehind(key) {
+  const nav = window.navigation;
+  if (!key || !nav || !nav.currentEntry || typeof nav.entries !== 'function') return false;
+  const here = nav.currentEntry.index;
+  return here > 0 && nav.entries()[here - 1]?.key === key;
+}
+
 function toLibrary() {
   if (!current) return;
   const s = current;
+  const key = libraryKey;
   const nav = window.navigation;
   let done = false;
-  const fallback = () => {
+  // rejected: the traverse failed, so nothing else will move history. Then,
+  // after closing, step back over the view entry to the library entry so no
+  // extra entry is left. Not after the timeout: the traverse may still land,
+  // and a second step could leave the app.
+  const fallback = (rejected) => {
     if (done) return;
     done = true;
-    if (current === s) closeDirectly();
+    if (current !== s) return;
+    closeDirectly();
+    if (!rejected || !libraryIsJustBehind(key)) return;
+    // If this fails too, the view entry stays behind as a library entry.
+    try {
+      const r = nav.back();
+      for (const p of [r?.committed, r?.finished]) if (p && typeof p.catch === 'function') p.catch(() => {});
+    } catch { /* see above */ }
   };
-  setTimeout(fallback, BUTTON_FALLBACK_MS);
+  const onReject = () => fallback(true);
+  setTimeout(() => fallback(false), BUTTON_FALLBACK_MS);
   if (!nav || typeof nav.traverseTo !== 'function') {
     history.back();
     return;
   }
   try {
-    if (!libraryKey) throw new Error('no library entry key');
-    const r = nav.traverseTo(libraryKey);
+    if (!key) throw new Error('no library entry key');
+    const r = nav.traverseTo(key);
     const finished = r && typeof r === 'object' && 'finished' in r ? r.finished : r;
-    if (r && typeof r === 'object' && r.committed) r.committed.catch(fallback);
-    Promise.resolve(finished).catch(fallback);
+    if (r && typeof r === 'object' && r.committed) r.committed.catch(onReject);
+    Promise.resolve(finished).catch(onReject);
   } catch {
-    fallback();
+    onReject();
   }
 }
 

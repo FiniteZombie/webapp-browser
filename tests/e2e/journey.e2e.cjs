@@ -146,6 +146,57 @@ module.exports = [
     assert.deepEqual([...dump.pages[0].tags].sort(), ['money', 'tools']);
   } },
 
+  { name: 'saved data 1: persistent storage is requested at boot and after an add; the warning follows the answer', run: async (t) => {
+    // Stubs persist()/persisted() in the app window only: persisted() reads
+    // false until persist() is asked, which grants it.
+    await t.context.addInitScript(() => {
+      try { if (window !== window.top) return; } catch { return; }
+      if (!location.pathname.endsWith('/app/')) return;
+      const log = window.__persistLog = { persist: [], persisted: 0, granted: false };
+      const proto = Object.getPrototypeOf(navigator.storage);
+      Object.defineProperty(proto, 'persist', { configurable: true, value: function persist() {
+        log.persist.push(window.__jdReady === true ? 'after-ready' : 'boot');
+        log.granted = true;
+        return Promise.resolve(true);
+      } });
+      Object.defineProperty(proto, 'persisted', { configurable: true, value: function persisted() {
+        log.persisted += 1;
+        return Promise.resolve(log.granted);
+      } });
+    });
+    const page = await boot(t);
+    let log = await page.evaluate(() => window.__persistLog);
+    assert.ok(log, 'the stub ran in the app window');
+    assert.deepEqual(log.persist, ['boot'], 'persist() is asked once during boot, before __jdReady');
+    // Boot dispatches libraryChanged after asking, so the warning reflects the grant.
+    await page.waitForFunction(() => document.querySelector('.lib-warning').hidden === true, null, { timeout: 5000 });
+    await addThroughUi(t, page, { fileName: 'p.html', html: PLAIN('persisty') });
+    log = await page.evaluate(() => window.__persistLog);
+    assert.equal(log.persist.length, 2, 'persist() is asked again after the add writes');
+    assert.equal(log.persist[1], 'after-ready');
+    assert.ok(log.persisted > 0, 'the library read persisted()');
+  } },
+
+  { name: 'saved data 1: a refused persist() leaves the storage warning showing; boot still finishes', run: async (t) => {
+    await t.context.addInitScript(() => {
+      try { if (window !== window.top) return; } catch { return; }
+      if (!location.pathname.endsWith('/app/')) return;
+      const log = window.__persistLog = { persist: 0 };
+      const proto = Object.getPrototypeOf(navigator.storage);
+      Object.defineProperty(proto, 'persist', { configurable: true, value: function persist() {
+        log.persist += 1;
+        return Promise.reject(new Error('refused by stub'));
+      } });
+      Object.defineProperty(proto, 'persisted', { configurable: true, value: () => Promise.resolve(false) });
+    });
+    const page = await boot(t);
+    assert.equal(await page.evaluate(() => window.__persistLog.persist), 1);
+    await page.waitForFunction(() => document.querySelector('.lib-warning').hidden === false, null, { timeout: 5000 });
+    await addThroughUi(t, page, { fileName: 'q.html', html: PLAIN('refused') });
+    assert.equal(await page.evaluate(() => window.__persistLog.persist), 2);
+    assert.equal(await page.locator('#notices .ui-notice').count(), 0, 'a refusal is not an error notice');
+  } },
+
   { name: 'saved data 1: persists across views and an app reload', run: async (t) => {
     const page = await boot(t);
     const { id } = await addThroughUi(t, page, { fileName: 'notes.html', html: PLAIN('notes') });

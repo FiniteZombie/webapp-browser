@@ -119,6 +119,37 @@ module.exports = [
     assert.deepEqual([...keys].sort(), expected.sort());
   } },
 
+  { name: 'precache busts the CDN with ?v=<build> and stores plain URLs', run: async (t) => {
+    // Stand in for a CDN edge that still has the old copy of a file under its
+    // plain URL: anything fetched without the build query gets stale bytes.
+    const seen = [];
+    await t.context.route(`${t.appUrl}**`, (route) => {
+      const url = new URL(route.request().url());
+      seen.push(url.href);
+      if (url.pathname.endsWith('/styles/base.css') && url.searchParams.get('v') !== 't1') {
+        return route.fulfill({ status: 200, contentType: 'text/css', body: '/* stale */' });
+      }
+      return route.continue();
+    });
+    const src = await (await fetch(t.appUrl + 'sw.js')).text();
+    const shell = shellFromSource(src);
+    const page = await setup(t);
+    for (const entry of shell) {
+      const busted = new URL(entry, t.appUrl);
+      busted.searchParams.set('v', 't1');
+      assert.ok(seen.includes(busted.href), `precache fetched ${busted.href}`);
+    }
+    const got = await page.evaluate(async () => {
+      const c = await caches.open('junk-drawer-shell-t1');
+      const keys = (await c.keys()).map((r) => r.url);
+      const css = await (await c.match(new URL('styles/base.css', document.baseURI).href)).text();
+      return { keys, css };
+    });
+    assert.ok(got.keys.every((k) => !k.includes('?')), JSON.stringify(got.keys));
+    assert.notEqual(got.css, '/* stale */');
+    await t.context.unrouteAll({ behavior: 'ignoreErrors' });
+  } },
+
   { name: 'a stored page is served with the shim, in standards mode', run: async (t) => {
     const page = await setup(t);
     await installHost(page);

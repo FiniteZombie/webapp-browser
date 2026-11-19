@@ -216,15 +216,21 @@ export async function getLocalEntries(pageId) {
 
 export async function applyLocalOps(pageId, ops) {
   if (!ops || ops.length === 0) return;
-  await run(LOCAL, 'readwrite', (tx, fail) => {
+  // The page row is checked in the same transaction: a write that lands
+  // after removePage must not leave rows behind, so it does nothing.
+  await run([PAGES, LOCAL], 'readwrite', (tx, fail) => {
     try {
-      const store = tx.objectStore(LOCAL);
-      for (const o of ops) {
-        if (o.op === 'set') store.put({ pageId, key: o.key, value: o.value });
-        else if (o.op === 'remove') store.delete([pageId, o.key]);
-        else if (o.op === 'clear') store.delete(localRange(pageId));
-        else throw new Error(`unknown local op: ${o.op}`);
-      }
+      const check = tx.objectStore(PAGES).getKey(pageId);
+      check.onsuccess = guarded(fail, () => {
+        if (check.result === undefined) return;
+        const store = tx.objectStore(LOCAL);
+        for (const o of ops) {
+          if (o.op === 'set') store.put({ pageId, key: o.key, value: o.value });
+          else if (o.op === 'remove') store.delete([pageId, o.key]);
+          else if (o.op === 'clear') store.delete(localRange(pageId));
+          else throw new Error(`unknown local op: ${o.op}`);
+        }
+      });
     } catch (e) {
       fail(e);
     }

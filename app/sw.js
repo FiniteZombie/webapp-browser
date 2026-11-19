@@ -43,11 +43,19 @@ const scope = () => self.registration.scope;
 
 // ---- lifecycle ----
 
+// Each file is fetched as <url>?v=<BUILD>: cache: 'reload' only skips the
+// browser's HTTP cache, and a CDN edge (GitHub Pages' Fastly) can still hold
+// the old copy of a plain URL for minutes after a deploy. The query is a URL
+// the edge hasn't seen. The response is stored under the plain URL, so
+// lookups match without the query.
 async function precache() {
   const responses = await Promise.all(SHELL.map(async (entry) => {
     const url = new URL(entry, scope()).href;
-    const res = await fetch(new Request(url, { cache: 'reload' }));
-    if (!res.ok) throw new Error(`precache: ${url} answered ${res.status}`);
+    const busted = new URL(url);
+    busted.searchParams.set('v', BUILD);
+    const res = await fetch(new Request(busted.href, { cache: 'reload' }));
+    if (!res.ok) throw new Error(`precache: ${busted.href} answered ${res.status}`);
+    if (res.redirected) throw new Error(`precache: ${busted.href} was redirected to ${res.url}`);
     return [url, res];
   }));
   const cache = await caches.open(CURRENT);

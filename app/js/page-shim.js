@@ -15,6 +15,21 @@ export function pageShim(boot) {
     try { fn(); } catch (e) { /* the host failed; the page carries on */ }
   }
 
+  // Taken before the page's own code can replace any of them.
+  var selfSource = '';
+  try { selfSource = String(pageShim); } catch (e) { /* no rewrapping then */ }
+  var RealXHR = win.XMLHttpRequest;
+  var RealBlob = win.Blob;
+  var makeUrl = win.URL.createObjectURL;
+  var RealURL = win.URL;
+  var loc = win.location;
+  var later = win.setTimeout;
+  var MARK = typeof Symbol === 'function' ? Symbol('junkDrawerShim') : '__junkDrawerShim';
+
+  function warn(text) {
+    try { win.console.warn('Junk Drawer: ' + text); } catch (e) { /* no console */ }
+  }
+
   // 1. Find the host.
   var host = null;
   try {
@@ -57,7 +72,6 @@ export function pageShim(boot) {
     return out;
   }
 
-  var StorageProto = win.Storage.prototype;
   var hasOwn = Object.prototype.hasOwnProperty;
 
   // 2 and 3. A stand-in for localStorage or sessionStorage.
@@ -135,71 +149,85 @@ export function pageShim(boot) {
       },
     };
 
-    var target = Object.create(StorageProto);
+    // One stand-in per realm (the page, and any blank window it opens), all
+    // over the same entries, so instanceof Storage holds in each.
+    var views = [];
+    return function viewFor(proto) {
+      for (var vi = 0; vi < views.length; vi++) {
+        if (views[vi][0] === proto) return views[vi][1];
+      }
+      var made = makeView(proto);
+      views.push([proto, made]);
+      return made;
+    };
 
-    // A stored key is visible as a property only when nothing on the
-    // prototype chain has that name (as with the real Storage).
-    function visible(prop) {
-      return typeof prop === 'string' && map.has(prop) && !(prop in target);
+    function makeView(proto) {
+      var target = Object.create(proto);
+
+      // A stored key is visible as a property only when nothing on the
+      // prototype chain has that name (as with the real Storage).
+      function visible(prop) {
+        return typeof prop === 'string' && map.has(prop) && !(prop in target);
+      }
+
+      var proxy = new Proxy(target, {
+        get: function (t, prop, receiver) {
+          if (typeof prop === 'string') {
+            if (hasOwn.call(methods, prop)) return methods[prop];
+            if (prop === 'length') return map.size;
+            if (visible(prop)) return map.get(prop);
+            if (!(prop in t)) return undefined;
+          }
+          return Reflect.get(t, prop, receiver === proxy ? t : receiver);
+        },
+        set: function (t, prop, value) {
+          if (typeof prop === 'string') {
+            methods.setItem(prop, value);
+            return true;
+          }
+          return Reflect.set(t, prop, value);
+        },
+        defineProperty: function (t, prop, desc) {
+          if (typeof prop === 'string') {
+            if (desc && 'value' in desc) methods.setItem(prop, desc.value);
+            return true;
+          }
+          return Reflect.defineProperty(t, prop, desc);
+        },
+        deleteProperty: function (t, prop) {
+          if (visible(prop)) {
+            methods.removeItem(prop);
+            return true;
+          }
+          return Reflect.deleteProperty(t, prop);
+        },
+        has: function (t, prop) {
+          if (typeof prop === 'string' && map.has(prop)) return true;
+          return Reflect.has(t, prop);
+        },
+        ownKeys: function (t) {
+          var keys = [];
+          map.forEach(function (v, k) {
+            if (!(k in t)) keys.push(k);
+          });
+          var own = Reflect.ownKeys(t);
+          for (var j = 0; j < own.length; j++) {
+            if (keys.indexOf(own[j]) < 0) keys.push(own[j]);
+          }
+          return keys;
+        },
+        getOwnPropertyDescriptor: function (t, prop) {
+          if (visible(prop)) {
+            return { value: map.get(prop), writable: true, enumerable: true, configurable: true };
+          }
+          return Reflect.getOwnPropertyDescriptor(t, prop);
+        },
+      });
+      return proxy;
     }
-
-    var proxy = new Proxy(target, {
-      get: function (t, prop, receiver) {
-        if (typeof prop === 'string') {
-          if (hasOwn.call(methods, prop)) return methods[prop];
-          if (prop === 'length') return map.size;
-          if (visible(prop)) return map.get(prop);
-          if (!(prop in t)) return undefined;
-        }
-        return Reflect.get(t, prop, receiver === proxy ? t : receiver);
-      },
-      set: function (t, prop, value) {
-        if (typeof prop === 'string') {
-          methods.setItem(prop, value);
-          return true;
-        }
-        return Reflect.set(t, prop, value);
-      },
-      defineProperty: function (t, prop, desc) {
-        if (typeof prop === 'string') {
-          if (desc && 'value' in desc) methods.setItem(prop, desc.value);
-          return true;
-        }
-        return Reflect.defineProperty(t, prop, desc);
-      },
-      deleteProperty: function (t, prop) {
-        if (visible(prop)) {
-          methods.removeItem(prop);
-          return true;
-        }
-        return Reflect.deleteProperty(t, prop);
-      },
-      has: function (t, prop) {
-        if (typeof prop === 'string' && map.has(prop)) return true;
-        return Reflect.has(t, prop);
-      },
-      ownKeys: function (t) {
-        var keys = [];
-        map.forEach(function (v, k) {
-          if (!(k in t)) keys.push(k);
-        });
-        var own = Reflect.ownKeys(t);
-        for (var j = 0; j < own.length; j++) {
-          if (keys.indexOf(own[j]) < 0) keys.push(own[j]);
-        }
-        return keys;
-      },
-      getOwnPropertyDescriptor: function (t, prop) {
-        if (visible(prop)) {
-          return { value: map.get(prop), writable: true, enumerable: true, configurable: true };
-        }
-        return Reflect.getOwnPropertyDescriptor(t, prop);
-      },
-    });
-    return proxy;
   }
 
-  var local = makeStorage(
+  var localFor = makeStorage(
     readEntries(host.entries),
     function (op, key, value) {
       safe(function () {
@@ -211,12 +239,8 @@ export function pageShim(boot) {
     typeof boot.quotaChars === 'number' ? boot.quotaChars : null,
     'localStorage'
   );
-  Object.defineProperty(win, 'localStorage', {
-    get: function () { return local; },
-    configurable: true,
-  });
 
-  var session = makeStorage(
+  var sessionFor = makeStorage(
     readEntries(host.sessionEntries),
     function (op, key, value) {
       safe(function () {
@@ -228,17 +252,26 @@ export function pageShim(boot) {
     null,
     'sessionStorage'
   );
-  Object.defineProperty(win, 'sessionStorage', {
-    get: function () { return session; },
-    configurable: true,
-  });
 
-  // 4. indexedDB: the real thing, every name prefixed.
+  // Puts the stand-ins in place of w's own storage (w is this window or a
+  // blank window the page opened, whose realm has its own Storage).
+  function installStorage(w) {
+    var proto = w.Storage.prototype;
+    var l = localFor(proto);
+    var ss = sessionFor(proto);
+    Object.defineProperty(w, 'localStorage', { get: function () { return l; }, configurable: true });
+    Object.defineProperty(w, 'sessionStorage', { get: function () { return ss; }, configurable: true });
+  }
+  installStorage(win);
+
+  // 4. indexedDB: the real thing, every name prefixed. patchIdb(w) does it
+  // in w's realm, once.
   var prefix = String(boot.dbPrefix);
-  try {
-    var Factory = win.IDBFactory && win.IDBFactory.prototype;
-    var DbProto = win.IDBDatabase && win.IDBDatabase.prototype;
-    if (Factory && DbProto) {
+  function patchIdb(w) {
+    var Factory = w.IDBFactory && w.IDBFactory.prototype;
+    var DbProto = w.IDBDatabase && w.IDBDatabase.prototype;
+    if (Factory && DbProto && !hasOwn.call(Factory, MARK)) {
+      Object.defineProperty(Factory, MARK, { value: true });
       var realOpen = Factory.open;
       var realDelete = Factory.deleteDatabase;
       var realDatabases = Factory.databases;
@@ -329,9 +362,190 @@ export function pageShim(boot) {
         });
       }
     }
-  } catch (e) { /* leave indexedDB as it is rather than break the page */ }
+  }
+  try { patchIdb(win); } catch (e) { /* leave indexedDB as it is rather than break the page */ }
 
   // 5. Leaving the page.
+  //
+  // A blob:, about: or filesystem: URL gives a document with this page's
+  // origin and no shim: the real localStorage, sessionStorage and the
+  // unprefixed indexedDB (Junk Drawer's own database included). None of
+  // them may load without the shim, in this frame or in a window the page
+  // opens. An HTML blob in this frame is reloaded with the shim put in;
+  // the rest are stopped.
+  var realWinOpen = win.open;
+
+  function schemeOf(href) {
+    try { return new RealURL(href).protocol; } catch (e) { return ''; }
+  }
+  function ownOrigin(scheme) {
+    return scheme === 'blob:' || scheme === 'about:' || scheme === 'filesystem:';
+  }
+
+  function latin1(u8, from, to) {
+    var out = '';
+    for (var i = from; i < to && i < u8.length; i += 8192) {
+      out += String.fromCharCode.apply(null, u8.subarray(i, Math.min(to, u8.length, i + 8192)));
+    }
+    return out;
+  }
+
+  // The same scan as doctypeEnd in inject.js (this function can't import).
+  function doctypeAt(u8) {
+    var head = latin1(u8, 0, 65536);
+    var start = head.slice(0, 3) === '\xEF\xBB\xBF' ? 3 : 0;
+    var opener = '\x3c!--';
+    var i = start;
+    for (;;) {
+      var c = head.charAt(i);
+      if (c === '\t' || c === '\n' || c === '\f' || c === '\r' || c === ' ') { i++; continue; }
+      if (head.slice(i, i + 4) === opener) {
+        var close = head.indexOf('-->', i + 4);
+        if (close < 0) return start;
+        i = close + 3;
+        continue;
+      }
+      break;
+    }
+    if (head.slice(i, i + 9).toLowerCase() !== '<!doctype') return start;
+    var gt = head.indexOf('>', i + 9);
+    return gt < 0 ? start : gt + 1;
+  }
+
+  // Reads a blob: URL while the event is still being handled (the page may
+  // revoke it straight after). null when it can't be read.
+  function readBlob(href) {
+    try {
+      var x = new RealXHR();
+      x.open('GET', href, false);
+      x.overrideMimeType('text/plain; charset=x-user-defined');
+      x.send();
+      if (x.status !== 200) return null;
+      var t = x.responseText;
+      var u8 = new Uint8Array(t.length);
+      for (var i = 0; i < t.length; i++) u8[i] = t.charCodeAt(i) & 255;
+      return { bytes: u8, type: String(x.getResponseHeader('content-type') || '') };
+    } catch (e) {
+      return null;
+    }
+  }
+
+  var shimHead = '<script>(' + selfSource + ')(';
+
+  // 'allow' (already has the shim, or can't run scripts), 'wrap' (HTML that
+  // needs the shim) or 'stop'.
+  function blobVerdict(blob) {
+    if (!blob) return 'stop';
+    var at = doctypeAt(blob.bytes);
+    if (selfSource && latin1(blob.bytes, at, at + shimHead.length) === shimHead) return 'allow';
+    var mime = blob.type.split(';')[0].replace(/^\s+|\s+$/g, '').toLowerCase();
+    if (mime === '' || mime === 'text/html') return selfSource ? 'wrap' : 'stop';
+    // XHTML, SVG and other XML can run scripts and can't take the shim.
+    if (mime.indexOf('xml') >= 0 || mime.indexOf('html') >= 0) return 'stop';
+    return 'allow';
+  }
+
+  function withShim(blob) {
+    var json = JSON.stringify(boot).replace(/[<\u0080-\uffff]/g, function (c) {
+      return '\\u' + ('0000' + c.charCodeAt(0).toString(16)).slice(-4);
+    });
+    var script = shimHead + json + ');document.currentScript.remove()<' + '/script>';
+    var at = doctypeAt(blob.bytes);
+    var parts = [blob.bytes.subarray(0, at), script, blob.bytes.subarray(at)];
+    return makeUrl.call(RealURL, new RealBlob(parts, { type: blob.type }));
+  }
+
+  // A link to blob:, about: or filesystem: that would open in another
+  // window (or anywhere, with anyTarget).
+  function linkToOtherWindow(el, event, anyTarget) {
+    try {
+      if (!el || (el.localName !== 'a' && el.localName !== 'area')) return false;
+      var raw = el.getAttribute('href');
+      if (raw === null || el.hasAttribute('download')) return false;
+      if (!ownOrigin(schemeOf(new RealURL(raw, el.baseURI).href))) return false;
+      if (anyTarget) return true;
+      var target = el.getAttribute('target');
+      if (target === null) {
+        var base = el.ownerDocument.querySelector('base[target]');
+        target = base ? base.getAttribute('target') : '';
+      }
+      target = String(target).toLowerCase();
+      if (event && (event.type === 'auxclick' || event.ctrlKey || event.shiftKey || event.metaKey)) return true;
+      return target !== '' && target !== '_self' && target !== '_parent' && target !== '_top';
+    } catch (e) {
+      return false;
+    }
+  }
+
+  // Applied to this window and to every blank window the page opens.
+  function guardWindow(w, own) {
+    if (hasOwn.call(w, MARK)) return;
+    Object.defineProperty(w, MARK, { value: true });
+    if (!own) {
+      installStorage(w);
+      patchIdb(w);
+    }
+
+    var openIn = own ? realWinOpen : w.open;
+    if (typeof openIn === 'function') {
+      w.open = function open(url) {
+        var target = arguments.length > 1 && arguments[1] !== undefined ? String(arguments[1]).toLowerCase() : '_blank';
+        if (target === '_self' || target === '_parent' || target === '_top') return openIn.apply(w, arguments);
+        var raw = url === undefined ? '' : String(url);
+        var scheme = raw === '' ? 'about:' : '';
+        if (!scheme) {
+          try { scheme = new RealURL(raw, w.document.baseURI).protocol; } catch (e) { return openIn.apply(w, arguments); }
+        }
+        if (scheme === 'blob:' || scheme === 'filesystem:') {
+          warn('a ' + scheme + ' window would run without private storage, so it was not opened');
+          return null;
+        }
+        var opened = openIn.apply(w, arguments);
+        if (opened && scheme === 'about:') {
+          try {
+            guardWindow(opened, false);
+          } catch (e) {
+            try { opened.close(); } catch (e2) { /* nothing more to do */ }
+            warn('a blank window could not be given private storage, so it was closed');
+            return null;
+          }
+        }
+        return opened;
+      };
+    }
+
+    var refuseLink = function (event) {
+      try {
+        var el = event.target;
+        while (el && el.localName !== 'a' && el.localName !== 'area') el = el.parentNode;
+        if (el && linkToOtherWindow(el, event, !own)) {
+          event.preventDefault();
+          warn('a link to ' + schemeOf(el.href) + ' in another window was not followed');
+        }
+      } catch (e) { /* let it be */ }
+    };
+    w.addEventListener('click', refuseLink, true);
+    w.addEventListener('auxclick', refuseLink, true);
+    var EP = w.HTMLElement && w.HTMLElement.prototype;
+    if (EP && typeof EP.click === 'function') {
+      var realClick = EP.click;
+      // A link that was never added to the document: no event reaches w.
+      EP.click = function click() {
+        if ((!own || !this.isConnected) && linkToOtherWindow(this, null, !own)) {
+          warn('a link to ' + schemeOf(this.href) + ' in another window was not followed');
+          return;
+        }
+        return realClick.apply(this, arguments);
+      };
+    }
+
+    // No navigate guard for a blank window: Chrome fires no navigate event
+    // in a window that started as the initial about:blank, even after
+    // document.open(). So a script that sends it to blob: isn't stopped.
+  }
+
+  try { guardWindow(win, true); } catch (e) { /* no window.open guard */ }
+
   try {
     var nav = win.navigation;
     if (nav && typeof nav.addEventListener === 'function') {
@@ -342,6 +556,25 @@ export function pageShim(boot) {
           var dest = event.destination;
           if (!dest || dest.sameDocument) return;
           var url = new URL(dest.url);
+          if (ownOrigin(url.protocol)) {
+            var blob = url.protocol === 'blob:' ? readBlob(url.href) : null;
+            var verdict = url.protocol === 'blob:' ? blobVerdict(blob) : 'stop';
+            if (verdict === 'allow' || !event.cancelable) return;
+            event.preventDefault();
+            if (verdict === 'wrap') {
+              var wrapped = withShim(blob);
+              var replace = event.navigationType !== 'push';
+              later.call(win, function () {
+                try {
+                  if (replace) loc.replace(wrapped);
+                  else loc.assign(wrapped);
+                } catch (e) { /* the page stays */ }
+              }, 0);
+            } else {
+              warn('a ' + url.protocol + ' document would run without private storage, so it was not opened');
+            }
+            return;
+          }
           if (url.protocol !== 'http:' && url.protocol !== 'https:') return;
           var here = new URL(win.location.href);
           var sameOrigin = url.origin === win.location.origin;
@@ -352,7 +585,7 @@ export function pageShim(boot) {
           if (sameOrigin) {
             notify('missing-file', { url: href });
           } else if (event.userInitiated) {
-            safe(function () { win.open(href, '_blank', 'noopener'); });
+            safe(function () { realWinOpen.call(win, href, '_blank', 'noopener'); });
           } else {
             notify('external-nav', { url: href });
           }

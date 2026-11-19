@@ -297,6 +297,43 @@ module.exports = [
     assert.equal(await state(page), 'library');
   } },
 
+  { name: 'the button\'s fallback after a rejected traverse leaves no extra library entry', run: async (t) => {
+    const page = await setup(t);
+    const html = '<!doctype html><title>hash</title><a id="a1" href="#one">one</a> <a id="a2" href="#two">two</a>';
+    const rec = await seed(t, page, { name: 'extra', html });
+    const index0 = await navIndex(page);
+    const length0 = await page.evaluate(() => history.length);
+    const reject = () => page.evaluate(() => {
+      navigation.traverseTo = () => {
+        const p = Promise.reject(new DOMException('interrupted', 'AbortError'));
+        p.catch(() => {});
+        return { committed: p, finished: p };
+      };
+    });
+
+    await openAndWait(t, page, rec.id);
+    await reject();
+    await closeWithButton(page);
+    await page.waitForFunction((i) => navigation.currentEntry.index === i, index0, { timeout: 3000 });
+    assert.equal(await state(page), 'library');
+    assert.equal(await isOpen(page), false);
+
+    // Again, after the page made history entries of its own.
+    const f = await openAndWait(t, page, rec.id);
+    await f.click('#a1');
+    await f.click('#a2');
+    await closeWithButton(page);
+    await page.waitForFunction((i) => navigation.currentEntry.index === i, index0, { timeout: 3000 });
+    await sleep(300);
+    assert.equal(await state(page), 'library');
+    assert.equal(await isOpen(page), false);
+    assert.equal(await navIndex(page), index0);
+    // The next open adds exactly one entry above the original library entry.
+    await openAndWait(t, page, rec.id);
+    assert.equal(await navIndex(page), index0 + 1);
+    assert.equal(await page.evaluate(() => history.length), length0 + 1);
+  } },
+
   { name: 'two openPage calls in the same tick make one iframe and one history entry', run: async (t) => {
     const page = await setup(t);
     const rec = await seed(t, page, { name: 'once', html: PLAIN('once') });
@@ -511,6 +548,40 @@ module.exports = [
     await sleep(200);
     assert.equal(await page.locator('.ui-notice').filter({ hasText: 'Data not saved' }).count(), 1);
     assert.match(await page.locator('.ui-notice').innerText(), /“hog”/);
+  } },
+
+  { name: 'a refused store write: the page\'s reloads see what is stored, and the notice says changes weren\'t saved', run: async (t) => {
+    const page = await setup(t);
+    const rec = await seed(t, page, { name: 'refused', html: PLAIN('refused') });
+    const f = await openAndWait(t, page, rec.id);
+    await f.evaluate(() => localStorage.setItem('a', '1'));
+    await whenSaved(page);
+    // Make Junk Drawer's own store refuse every put, as a full disk would.
+    await page.evaluate(() => {
+      const real = IDBObjectStore.prototype.put;
+      window.__realPut = real;
+      IDBObjectStore.prototype.put = function () { throw new DOMException('stubbed full', 'QuotaExceededError'); };
+    });
+    await f.evaluate(() => { localStorage.setItem('a', '2'); localStorage.setItem('b', 'x'); });
+    await whenSaved(page);
+    await f.evaluate(() => localStorage.setItem('b', 'y'));
+    await whenSaved(page);
+    await page.evaluate(() => { IDBObjectStore.prototype.put = window.__realPut; });
+    assert.deepEqual(await localRows(t, page, rec.id), { a: '1' });
+
+    const notices = page.locator('.ui-notice').filter({ hasText: 'weren’t saved' });
+    assert.equal(await notices.count(), 1);
+    assert.match(await notices.innerText(), /“refused”/);
+
+    await f.evaluate(() => { window.__mark = 1; setTimeout(() => location.reload(), 0); });
+    await f.waitForFunction(() => !window.__mark && document.readyState === 'complete');
+    assert.deepEqual(await f.evaluate(() => [localStorage.getItem('a'), localStorage.getItem('b')]), ['1', null]);
+
+    // Later writes still go through.
+    await f.evaluate(() => localStorage.setItem('c', '3'));
+    await whenSaved(page);
+    assert.deepEqual(await localRows(t, page, rec.id), { a: '1', c: '3' });
+    assert.equal(await notices.count(), 1);
   } },
 
   { name: 'a write made in the same tick the viewer closes is stored', run: async (t) => {
