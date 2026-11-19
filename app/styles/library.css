@@ -1,1 +1,101 @@
-/* stub: owned by WP9 */
+/* library.css (WP9): the library view. Contract tokens only. */
+
+#library {
+  max-width: 40rem;
+  margin: 0 auto;
+  padding: calc(12px + env(safe-area-inset-top, 0px)) 16px calc(24px + env(safe-area-inset-bottom, 0px));
+}
+
+.lib-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--jd-gap);
+  margin-bottom: var(--jd-gap);
+}
+
+.lib-title { margin: 0; font-size: 1.5rem; }
+
+.lib-warning {
+  margin: 0 0 var(--jd-gap);
+  padding: 12px;
+  border: 2px solid var(--jd-line);
+  border-left: 8px solid var(--jd-danger);
+  border-radius: var(--jd-radius);
+  background: var(--jd-surface);
+}
+
+.lib-warning::before { content: "warning: "; font-weight: 700; }
+
+.lib-controls { margin-bottom: var(--jd-gap); }
+
+.lib-sort { margin-bottom: var(--jd-gap); }
+
+.lib-chip-mark { font-weight: 700; }
+
+.lib-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+
+.lib-row {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  min-height: 56px;
+  padding: 10px 16px;
+  border: 2px solid var(--jd-line);
+  border-radius: var(--jd-radius);
+  background: var(--jd-surface);
+  color: var(--jd-fg);
+  text-align: left;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.lib-row:active { background: var(--jd-bg); }
+
+.lib-name-line { display: flex; align-items: center; gap: 8px; }
+
+.lib-name { font-weight: 600; overflow-wrap: anywhere; }
+
+.lib-tags { color: var(--jd-muted); font-size: 0.9rem; overflow-wrap: anywhere; }
+
+.lib-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.lib-none { color: var(--jd-muted); }
+
+.lib-empty { padding: 24px 0; }
+
+.lib-footer {
+  margin-top: 24px;
+  padding-top: var(--jd-gap);
+  border-top: 1px solid var(--jd-line);
+  color: var(--jd-muted);
+  font-size: 0.9rem;
+}
+
+.lib-hint { margin: 0 0 var(--jd-gap); }
+
+.lib-trouble { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+
+.lib-trouble > p { margin: 0; }
+
+.lib-build { flex: 1 1 100%; }
+
+.lib-picker { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; flex: 1 1 100%; }
+
+.lib-picker[hidden] { display: none; }
