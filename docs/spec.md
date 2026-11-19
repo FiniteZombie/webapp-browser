@@ -46,10 +46,10 @@ platform limit forces a behaviour, the limit is stated next to it.
    optional: pick from tags already in use or type new ones. Cancelling here
    adds nothing.
 5. The page joins the library.
-6. **Delete the original?** Junk Drawer asks whether to delete the downloaded
-   file. See [the limit](#deleting-the-original) below.
-7. **Open it?** Junk Drawer asks whether to view the new page now or go back
-   to the library.
+6. **Delete the original?** One sheet asks both this and step 7: whether to
+   delete the downloaded file. See [the limit](#deleting-the-original) below.
+7. **Open it?** The same sheet asks whether to view the new page now or go
+   back to the library.
 
 ### Deleting the original
 
@@ -80,8 +80,8 @@ Junk Drawer always opens to the library.
 - **Tags** are free text, stored lowercase and trimmed, so "Games" and
   "games" are one tag. A tag exists while some page has it; there is no
   separate tag list to manage.
-- **Per-page actions:** open (tap the page), pin or unpin, edit name and
-  tags, replace file, remove.
+- **Per-page actions:** open (tap the page); pressing and holding it opens the
+  others: pin or unpin, edit name and tags, replace file, remove.
 - **Empty library:** says what Junk Drawer is for and offers "add new page".
 
 Opening a page adds one to its open count and sets its last-opened time.
@@ -90,8 +90,10 @@ Opening a page adds one to its open count and sets its last-opened time.
 
 - The page shows inside Junk Drawer under a slim top bar with the page's name
   and a "library" button. The bar is always visible.
-- Android's back gesture returns to the library, which keeps its scroll
-  position, sort and filter. Back from the library leaves the app.
+- Android's back gesture steps back through the page's own screens first,
+  then returns to the library, which keeps its scroll position, sort and
+  filter. The "library" button always goes straight to the library. Back from
+  the library leaves the app.
 - Every open loads the page fresh. Only saved data carries over.
 - The page behaves as it would in a browser tab: scripts, network requests,
   `alert`/`confirm`/`prompt`, clipboard, fullscreen, and files it offers for
@@ -122,6 +124,9 @@ A page's saved data:
 3. **Survives replacing the file.**
 4. **Is deleted when the page is removed.**
 5. **Is readable by Junk Drawer**, page by page, so backup can export it.
+
+Two limits are accepted: data saved from a web worker or an inner frame isn't
+separated, and the separation guards against accidents, not intent.
 
 `localStorage` and `IndexedDB` meet all five. A page that uses either always
 works and persists, which rules out running pages in a sandbox that blocks

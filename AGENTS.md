@@ -8,21 +8,42 @@ library for finding and using them. No backend.
 
 ## Where we are
 
-The repo has its git, editor and deploy setup and no app yet. What the app
-does is in [`docs/spec.md`](docs/spec.md); build from that, not from this
-file.
+v1 is built: library, add, replace and remove, viewer with per-page saved
+data, offline use, updates. What the app does is in
+[`docs/spec.md`](docs/spec.md). How it was planned is in
+[`docs/v1-plan/`](docs/v1-plan/README.md), and the fixed file layout and
+interfaces are in [`docs/v1-plan/contracts.md`](docs/v1-plan/contracts.md).
+What only the phone can prove is in [`docs/phone-check.md`](docs/phone-check.md).
 
 ## Stack
 
 Plain HTML, CSS and JavaScript in `app/`, served as-is: no build, no npm
 packages, no framework. The manifest and service worker are hand-written.
+The one exception: the deploy workflow stamps the commit into the first line
+of `app/sw.js`, and that line must stay exactly as it is.
 
 - **Relative URLs only** inside `app/`. Pages serves it under
   `/webapp-browser/` and the dev server serves it at `/`; a leading `/` breaks
   one of them.
-- **The service worker keeps serving old files** until its cache name
-  changes, so an installed app won't pick up a deploy unless the worker
-  handles updates.
+- **Updates:** the stamped first line makes `sw.js` differ on every deploy.
+  The installed worker notices, caches the new files under the new build and
+  takes over, and the app reloads once, only while the library is showing
+  with no dialog or message open. The library footer shows the build.
+
+## Tests
+
+`node tests/run.cjs` (see [`tests/README.md`](tests/README.md)), with a
+10-minute command timeout. It needs Playwright resolvable by Node, which cloud
+sessions have; ask the owner before installing it anywhere else.
+`node tests/tools/screenshots.cjs` saves screenshots to `tests/out/screens/`.
+
+## How pages are kept apart
+
+Every page runs on one web origin, so the app builds the separation of each
+page's saved data itself. How, and the known limits (data saved from a web
+worker or an inner frame isn't separated; it guards against accidents, not
+intent), are in [`docs/v1-plan/contracts.md`](docs/v1-plan/contracts.md)
+section 1.
 
 ## The platform limit
 
