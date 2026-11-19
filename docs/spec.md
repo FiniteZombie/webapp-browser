@@ -32,8 +32,10 @@ platform limit forces a behaviour, the limit is stated next to it.
 
 1. The owner taps "add new page" in the library. Android's file picker opens
    for one `.html` or `.htm` file.
-2. Junk Drawer copies the file's contents into its own storage. From here on
-   the page never depends on the file in Downloads.
+2. Junk Drawer checks the file
+   ([When something goes wrong](#when-something-goes-wrong)) and copies its
+   contents into its own storage. From here on the page never depends on the
+   file in Downloads.
 3. **Same-name check.** If a page already in the library has the same name or
    the same file name, Junk Drawer asks: replace that page, or add as a new
    one. The comparison ignores case and the " (1)" suffix Android adds to
@@ -121,10 +123,12 @@ A page's saved data:
 4. **Is deleted when the page is removed.**
 5. **Is readable by Junk Drawer**, page by page, so backup can export it.
 
-`localStorage` meets all five. `sessionStorage` works and lasts one view.
-`IndexedDB` works and persists; if a plan can't also make it private per page
-and readable for backup, it says so and asks the owner rather than quietly
-dropping a rule. Cookies and the Cache API carry no promise.
+`localStorage` and `IndexedDB` meet all five. A page that uses either always
+works and persists, which rules out running pages in a sandbox that blocks
+storage. If a plan finds it can't make `IndexedDB` private per page or
+readable for backup, it says so and asks the owner rather than quietly
+dropping a rule. `sessionStorage` works and lasts one view. Cookies and the
+Cache API carry no promise.
 
 A page starts with empty saved data in Junk Drawer, even if the same file
 saved data earlier when opened straight from Downloads in Chrome.
@@ -146,6 +150,45 @@ For a new version of a page already in the library. Reached from the page's
 - Remove deletes Junk Drawer's copy and the page's saved data. There is no
   undo or trash.
 - Remove never touches Downloads.
+
+## When something goes wrong
+
+Nothing fails silently. Every failure shows a message that:
+
+- says in plain words what went wrong and which file or page it concerns;
+- says what to do next, when there is something to do;
+- stays on screen until the owner dismisses it;
+- carries the technical detail (file name, type, size, the browser's error
+  text) in a form the owner can copy into a report for an agent.
+
+A failed add or replace leaves the library exactly as it was: no half-added
+page, and a failed replace keeps the old file.
+
+**Refused when adding or replacing**, each with its own message:
+
+- The file isn't `.html` or `.htm`. A page saved from Chrome as `.mhtml` gets
+  a message that names that format.
+- The file can't be read, or is empty.
+- The contents aren't HTML (a renamed image or archive, say).
+- There isn't enough storage left to keep the copy.
+
+**Warned, and the owner chooses** to add anyway or cancel:
+
+- The page refers to files that sat beside it (a script, stylesheet or image
+  by relative path). Junk Drawer doesn't have them; the message lists them
+  and says the page may not work.
+
+**While using the app:**
+
+- A page whose stored copy is missing or unreadable shows an error in place
+  of a blank screen.
+- If the browser refuses to store a page's saved data, Junk Drawer says so
+  even when the page itself stays quiet.
+- If the browser won't grant persistent storage, the library says the pages
+  and their data could be evicted.
+
+Junk Drawer doesn't report a page's own script errors. It can't tell a
+harmless one from a broken page.
 
 ## Later
 
