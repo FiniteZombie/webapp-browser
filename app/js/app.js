@@ -24,12 +24,17 @@ const fire = (name) => document.dispatchEvent(new CustomEvent(name));
 
 // ---------- 1. nothing fails silently ----------
 
+// The detail says which listener caught it and, for an error event, where
+// the browser says it happened: an error with no stack trace has no other
+// clue to where it came from.
 function listenForErrors() {
   window.addEventListener('error', (e) => {
-    reportError(e.error || new Error(e.message || 'script error'), {});
+    const where = e.filename ? ` at ${e.filename}:${e.lineno}:${e.colno}` : '';
+    reportError(e.error || new Error(e.message || 'script error'), { caughtBy: `window error event${where}` });
   });
   window.addEventListener('unhandledrejection', (e) => {
-    reportError(e.reason === undefined ? new Error('unhandled rejection') : e.reason, {});
+    reportError(e.reason === undefined ? new Error('unhandled rejection') : e.reason,
+      { caughtBy: 'unhandled promise rejection' });
   });
 }
 

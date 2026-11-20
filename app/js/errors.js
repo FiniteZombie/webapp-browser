@@ -146,6 +146,7 @@ export function describe(err, ctx = {}) {
 
   const lines = [`code: ${code}`];
   if (isJdError(err) && !known) lines.push(`unknown code: ${err.code}`);
+  if (ctx?.caughtBy) lines.push(`caught by: ${ctx.caughtBy}`);
   if (file) {
     lines.push(`file: ${file.name ?? '(no name)'}`);
     lines.push(`type: ${file.type || '(none)'}`);
@@ -158,7 +159,9 @@ export function describe(err, ctx = {}) {
   const cause = isJdError(err) ? err.cause : err;
   if (cause !== undefined) {
     lines.push(`error: ${errorText(cause)}`);
-    for (const l of stackLines(cause)) lines.push(`  ${l}`);
+    const stack = stackLines(cause);
+    for (const l of stack) lines.push(`  ${l}`);
+    if (!stack.length && cause !== null && typeof cause === 'object') lines.push('  (no stack trace)');
   }
   if (isJdError(err)) {
     const d = detailText(err.detail);

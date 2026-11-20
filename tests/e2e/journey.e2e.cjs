@@ -367,6 +367,11 @@ module.exports = [
     await page.evaluate(() => { Promise.reject(new Error('wp11 test rejection')); });
     await notice.first().waitFor({ timeout: 5000 });
     assert.equal(await notice.count(), 1);
+    await t.context.grantPermissions(['clipboard-read', 'clipboard-write']);
+    await btn(notice.first(), 'copy details').click();
+    await page.waitForFunction(() => document.querySelector('#notices button')?.textContent === 'copied');
+    const text = await page.evaluate(() => navigator.clipboard.readText());
+    assert.ok(text.includes('caught by: unhandled promise rejection'), text);
   } },
 
   { name: 'offline: load once, go offline, reload: the library renders and a page opens', run: async (t) => {

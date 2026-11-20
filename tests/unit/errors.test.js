@@ -86,6 +86,16 @@ test('a plain TypeError is described as unexpected with its message in detail', 
   assert(d.detail.includes('TypeError: x is not a function'), d.detail);
 });
 
+test('detail says what caught the error, and when a cause has no stack trace', () => {
+  const noStack = { name: 'InvalidStateError', message: 'Invalid key' };
+  const d = describe(noStack, { caughtBy: 'unhandled promise rejection' });
+  assert(d.detail.includes('caught by: unhandled promise rejection'), d.detail);
+  assert(d.detail.includes('error: InvalidStateError: Invalid key\n  (no stack trace)'), d.detail);
+  const withStack = describe(new TypeError('boom'), {});
+  assert(!withStack.detail.includes('caught by') && !withStack.detail.includes('(no stack trace)'), withStack.detail);
+  assert(!describe('a string', {}).detail.includes('(no stack trace)'), 'no note for a non-object');
+});
+
 test('non-errors and unknown codes are unexpected', () => {
   for (const v of ['a string', null, undefined, 42, { odd: true }, new JdError('no-such-code')]) {
     const d = describe(v, {});
