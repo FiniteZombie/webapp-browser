@@ -267,19 +267,68 @@ function deleteDatabase(name, ms = DELETE_DB_WAIT_MS) {
   });
 }
 
+// Deletes every database the page made. Never rejects: a database that
+// can't be listed or deleted is left behind.
+export async function removePageDatabases(id) {
+  let names = [];
+  try {
+    names = await listPageDatabases(id);
+  } catch {
+    // can't list: nothing more to do
+  }
+  await Promise.all(names.map((n) => deleteDatabase(n)));
+}
+
 export async function removePage(id) {
   await run([PAGES, FILES, LOCAL], 'readwrite', (tx) => {
     tx.objectStore(PAGES).delete(id);
     tx.objectStore(FILES).delete(id);
     tx.objectStore(LOCAL).delete(localRange(id));
   });
-  let names = [];
-  try {
-    names = await listPageDatabases(id);
-  } catch {
-    // can't list: the page is gone from the library anyway
-  }
-  await Promise.all(names.map((n) => deleteDatabase(n)));
+  await removePageDatabases(id);
+}
+
+// ---------- backup ----------
+
+// Everything in the library, read in one transaction so it's one moment's
+// state: { pages, files: Map(id -> { bytes, charset }), local: Map(id -> [[key, value]]) }.
+export async function readLibrary() {
+  return run([PAGES, FILES, LOCAL], 'readonly', (tx) => {
+    const pages = tx.objectStore(PAGES).getAll();
+    const files = tx.objectStore(FILES).getAll();
+    const local = tx.objectStore(LOCAL).getAll();
+    return () => {
+      const fileMap = new Map(files.result.map((f) => [f.id, { bytes: f.bytes, charset: f.charset ?? null }]));
+      const localMap = new Map();
+      for (const r of local.result) {
+        if (!localMap.has(r.pageId)) localMap.set(r.pageId, []);
+        localMap.get(r.pageId).push([r.key, r.value]);
+      }
+      return { pages: pages.result, files: fileMap, local: localMap };
+    };
+  });
+}
+
+// Writes pages from a backup in one transaction: each item's row, file and
+// localStorage data replace whatever that page id had. items:
+// [{ record, bytes, charset, local: [[key, value]] }].
+export async function importPages(items) {
+  await run([PAGES, FILES, LOCAL], 'readwrite', (tx, fail) => {
+    try {
+      const pages = tx.objectStore(PAGES);
+      const files = tx.objectStore(FILES);
+      const local = tx.objectStore(LOCAL);
+      for (const { record, bytes, charset, local: entries } of items) {
+        const id = record.id;
+        pages.put({ ...record, size: bytes.byteLength });
+        files.put({ id, bytes, charset: charset ?? null });
+        local.delete(localRange(id));
+        for (const [key, value] of entries || []) local.put({ pageId: id, key, value });
+      }
+    } catch (e) {
+      fail(e);
+    }
+  });
 }
 
 // ---------- settings ----------

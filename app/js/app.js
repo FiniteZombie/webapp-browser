@@ -7,6 +7,7 @@ import { reportError, hasOpenUi } from './ui.js';
 import { initLibrary } from './library.js';
 import { initViewer, openPage, isViewerOpen, whenSaved } from './viewer.js';
 import { addPageFlow, replaceFlow } from './add-flow.js';
+import { exportLibraryFlow, importLibraryFlow, exportPageFlow } from './backup-flow.js';
 
 const UPDATE_CHECK_MS = 60_000;
 const AFTER_CHANGE_MS = 2000;
@@ -55,6 +56,12 @@ function wireEvents() {
   document.addEventListener(EVENTS.replaceFile, (e) => {
     const id = e.detail.id;
     runFlow(() => replaceFlow(id));
+  });
+  document.addEventListener(EVENTS.exportLibrary, () => runFlow(() => exportLibraryFlow()));
+  document.addEventListener(EVENTS.importLibrary, () => runFlow(() => importLibraryFlow()));
+  document.addEventListener(EVENTS.exportPage, (e) => {
+    const id = e.detail.id;
+    runFlow(() => exportPageFlow(id));
   });
   document.addEventListener(EVENTS.openPage, (e) => {
     const id = e.detail.id;

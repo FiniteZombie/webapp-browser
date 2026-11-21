@@ -99,3 +99,5 @@
 .lib-picker { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; flex: 1 1 100%; }
 
 .lib-picker[hidden] { display: none; }
+
+.lib-backup { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: var(--jd-gap); }

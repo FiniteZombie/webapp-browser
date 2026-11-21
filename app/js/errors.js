@@ -86,6 +86,21 @@ const CATALOGUE = {
     body: `The downloaded file ${file} is still on the phone because permission to delete it wasn’t given. The page itself is safely saved in Junk Drawer.`,
     next: '',
   }),
+  'backup-unreadable': ({ file }) => ({
+    title: 'Couldn’t read the backup',
+    body: `${cap(file)} isn’t a zip file Junk Drawer can read, or it’s damaged. Nothing was changed.`,
+    next: 'Pick the .zip file that “export library” made. If it came from Drive, download it again.',
+  }),
+  'backup-not-ours': ({ file }) => ({
+    title: 'Not a Junk Drawer backup',
+    body: `${cap(file)} is a zip file, but not one made by “export library”. Nothing was changed.`,
+    next: 'Pick the .zip file that “export library” made.',
+  }),
+  'backup-too-new': ({ file }) => ({
+    title: 'Backup from a newer Junk Drawer',
+    body: `${cap(file)} was made by a newer version of Junk Drawer than this one. Nothing was changed.`,
+    next: 'Close Junk Drawer and open it again while connected to the internet so it updates, then try again.',
+  }),
   'picker-failed': () => ({
     title: 'File picker didn’t open',
     body: 'The file picker didn’t open.',

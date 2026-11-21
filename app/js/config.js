@@ -12,6 +12,9 @@ export const EVENTS = {
   addPage: 'jd:add-page',                // the "add new page" button
   replaceFile: 'jd:replace-file',        // detail: { id }
   viewerClosed: 'jd:viewer-closed',
+  exportLibrary: 'jd:export-library',    // the library's "export library" button
+  importLibrary: 'jd:import-library',    // the library's "import library" button
+  exportPage: 'jd:export-page',          // detail: { id }; the viewer's "export" button
 };
 export const SETTINGS = {
   sort: 'library.sort',

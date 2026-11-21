@@ -88,8 +88,8 @@ Opening a page adds one to its open count and sets its last-opened time.
 
 ## Viewing a page
 
-- The page shows inside Junk Drawer under a slim top bar with the page's name
-  and a "library" button. The bar is always visible.
+- The page shows inside Junk Drawer under a slim top bar with the page's name,
+  an "export" button and a "library" button. The bar is always visible.
 - Android's back gesture steps back through the page's own screens first,
   then returns to the library, which keeps its scroll position, sort and
   filter. The "library" button always goes straight to the library. Back from
@@ -156,6 +156,39 @@ For a new version of a page already in the library. Reached from the page's
   undo or trash.
 - Remove never touches Downloads.
 
+## Backup and export
+
+Files leave the app through Android's share sheet (Web Share API with
+files) or as a download to Downloads. When the share sheet can take the
+file, the owner chooses "share…" or "save to downloads"; otherwise the file
+is downloaded. If the share sheet won't open, the file is downloaded and a
+notice says so. Chrome's share sheet may not take zip files, so a backup may
+always be a download.
+
+- **Export page** (the viewer's "export" button) gives out the page's HTML
+  exactly as it was added, under its original file name. It's how the owner
+  gets a page back out to iterate on it elsewhere.
+- **Export library** (library footer) makes one zip,
+  `junk-drawer-backup-<date>.zip`: every page's HTML under `pages/`, and
+  `junk-drawer-backup.json` with each page's name, tags, pin, counts, dates
+  and saved data (`localStorage`, and its IndexedDB databases with their
+  stores, indexes and records). Saved values that don't convert easily
+  (files, images and other browser objects stored in IndexedDB) are left
+  out; the "backup ready" dialog lists, per page, what was left out, and the
+  backup remembers it. Device settings (sort, picker choice) aren't in it.
+- **Import library** (library footer, also when the library is empty) picks
+  a backup zip with the plain file input, says how many pages it will
+  replace and add, and asks first. A page matches by its id, which the
+  backup carries, so a page moved from one phone to another and back is
+  replaced, saved data included; the same file added separately on two
+  phones has two ids and ends up twice. Pages that aren't in the backup stay
+  as they are. Pages and their `localStorage` data go in one transaction;
+  each page's IndexedDB databases are then replaced. The closing dialog lists
+  anything that didn't come across.
+- Zip files are written and read by Junk Drawer itself (`js/zip.js`, with
+  the browser's own deflate). It reads stored and deflated zips, not zip64 or
+  encrypted ones.
+
 ## When something goes wrong
 
 Nothing fails silently. Every failure shows a message that:
@@ -199,10 +232,6 @@ harmless one from a broken page.
 
 Not in the first version. The first version must not make them hard.
 
-- **Backup.** "export library" writes one file holding every page, its name,
-  tags, pin, counts, dates and saved data; "restore library" reads it back.
-  Clearing Chrome's data for the site or changing phone erases the library,
-  and this is the only way to get it back.
 - **Share sheet.** Junk Drawer appears in Android's share sheet for HTML
   files (Web Share Target) and a shared file enters the add flow at step 2.
 
@@ -230,3 +259,6 @@ Unproven on the owner's phone; a plan settles these before building on them.
    `FileSystemHandle.remove()`, including the permission prompts Android
    shows. If it fails, pick files with `<input type="file">` and drop step 6.
 2. `navigator.storage.persist()` is granted to the installed app.
+3. Whether Chrome's share sheet takes the backup zip (`navigator.canShare`
+   with an `application/zip` file), and that the plain file input can pick a
+   zip from Downloads and from Drive.

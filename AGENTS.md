@@ -9,7 +9,8 @@ library for finding and using them. No backend.
 ## Where we are
 
 v1 is built: library, add, replace and remove, viewer with per-page saved
-data, offline use, updates. What the app does is in
+data, offline use, updates. Since then: export page, and export and import of the
+whole library as a backup zip (spec section "Backup and export"). What the app does is in
 [`docs/spec.md`](docs/spec.md). How it was planned is in
 [`docs/v1-plan/`](docs/v1-plan/README.md), and the fixed file layout and
 interfaces are in [`docs/v1-plan/contracts.md`](docs/v1-plan/contracts.md).

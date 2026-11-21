@@ -65,6 +65,21 @@ what to send.
 13. **Only if you have such a page:** a page with a "preview" button that
     opens a view of its own should show the same saved data as the page
     itself.
+14. **Export a page.** Open a page and tap "export" in the top bar. If a
+    sheet offers "share…", tap it: Android's share sheet should open with an
+    .html file (try sending it to Drive or the Claude app). Export again and
+    pick "save to downloads": the file should appear in Downloads under its
+    original name. If no sheet appears, the file should go straight to
+    Downloads; note that.
+15. **Export the library.** In the library footer tap "export library". A
+    "backup ready" dialog should say how many pages there are. Note whether
+    it offers "share…" (Chrome may not share zip files). Save or share it,
+    and check the .zip arrives where you sent it.
+16. **Import the library.** Use a second phone if you have one; otherwise
+    rename a page in the library first. Tap "import library", pick the zip
+    (from Downloads, or from Drive in the picker's menu). It should say how
+    many pages it will replace and add, then that it imported them. A page's
+    saved data (step 9) should be as it was when you exported.
 
 ## If something's off
 

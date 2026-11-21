@@ -208,18 +208,37 @@ export function confirmDialog({ title, body, confirmLabel = 'ok', cancelLabel = 
   });
 }
 
+function bulletList(dlg, list) {
+  if (!list || !list.length) return;
+  const ul = el('ul', 'ui-list');
+  for (const item of list.slice(0, 10)) ul.appendChild(el('li', '', item));
+  if (list.length > 10) ul.appendChild(el('li', '', `and ${list.length - 10} more`));
+  dlg.appendChild(ul);
+}
+
+// A message with one button. Resolves when it's closed.
+export function messageDialog({ title, body, list, next, okLabel = 'ok' } = {}) {
+  return openDialog({
+    cancelValue: undefined,
+    build(dlg, finish) {
+      heading(dlg, title);
+      paragraph(dlg, body);
+      bulletList(dlg, list);
+      if (next) dlg.appendChild(el('p', 'ui-text ui-next', next));
+      const row = el('div', 'ui-row-buttons');
+      row.appendChild(button(okLabel, 'ui-btn-primary', () => finish(undefined)));
+      dlg.appendChild(row);
+    },
+  });
+}
+
 export function choiceDialog({ title, body, list, choices = [] } = {}) {
   return openDialog({
     cancelValue: null,
     build(dlg, finish) {
       heading(dlg, title);
       paragraph(dlg, body);
-      if (list && list.length) {
-        const ul = el('ul', 'ui-list');
-        for (const item of list.slice(0, 10)) ul.appendChild(el('li', '', item));
-        if (list.length > 10) ul.appendChild(el('li', '', `and ${list.length - 10} more`));
-        dlg.appendChild(ul);
-      }
+      bulletList(dlg, list);
       const stack = el('div', 'ui-stack');
       for (const c of choices) {
         stack.appendChild(button(c.label, c.danger ? 'ui-btn-danger' : '', () => finish(c.id)));

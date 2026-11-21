@@ -46,7 +46,16 @@ export async function pickFile() {
     }
   }
 
-  return pickWithInput();
+  return pickWithInput(HTML_ACCEPT);
+}
+
+// Picking a backup zip: always the plain file input, which on Android also
+// offers Drive and other apps' files. Resolves to { file, handle: null } or
+// null when cancelled. Tests use the same seam as pickFile.
+export async function pickBackup() {
+  const seam = globalThis.__jdTest?.pickFile;
+  if (typeof seam === 'function') return seam();
+  return pickWithInput(ZIP_ACCEPT);
 }
 
 // How long after the page gets focus back (or becomes visible) a pick with no
@@ -54,12 +63,14 @@ export async function pickFile() {
 // Android versions close the chooser without it; `change` can also arrive a
 // moment after focus, hence the wait.
 const RETURN_GRACE_MS = 1500;
+const HTML_ACCEPT = '.html,.htm,text/html';
+const ZIP_ACCEPT = '.zip,application/zip,application/x-zip-compressed';
 
-function pickWithInput() {
+function pickWithInput(accept) {
   return new Promise((resolve) => {
     const input = document.createElement('input');
     input.type = 'file';
-    input.accept = '.html,.htm,text/html';
+    input.accept = accept;
     input.hidden = true;
     let done = false;
     let timer = 0;

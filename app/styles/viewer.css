@@ -40,7 +40,8 @@
   text-overflow: ellipsis;
 }
 
-.view-library {
+.view-library,
+.view-export {
   flex: none;
   padding: 4px 16px;
 }

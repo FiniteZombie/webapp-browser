@@ -115,6 +115,14 @@ async function start() {
 
   const footer = el('footer', 'lib-footer');
   const hint = el('p', 'lib-hint', 'press and hold a page for more');
+  const backupRow = el('div', 'lib-backup');
+  const exportBtn = button('export library', '', () => {
+    document.dispatchEvent(new CustomEvent(EVENTS.exportLibrary));
+  });
+  const importBtn = button('import library', '', () => {
+    document.dispatchEvent(new CustomEvent(EVENTS.importLibrary));
+  });
+  backupRow.append(exportBtn, importBtn);
   const trouble = el('div', 'lib-trouble');
   const buildLine = el('p', 'lib-build');
   const diag = copyButton({ label: 'copy diagnostics', getText: () => 'diagnostics' });
@@ -143,7 +151,7 @@ async function start() {
     }
   });
   trouble.append(buildLine, diag, pickerRow, deleteBtn);
-  footer.append(hint, trouble);
+  footer.append(hint, backupRow, trouble);
 
   root.replaceChildren(header, warning, controls, list, none, empty, footer);
 
@@ -158,6 +166,7 @@ async function start() {
     empty.hidden = !isEmpty;
     addTop.hidden = isEmpty;
     hint.hidden = isEmpty;
+    exportBtn.hidden = isEmpty;
     select.value = sort;
 
     chips.replaceChildren(...tags.map((tag) => {

@@ -105,6 +105,9 @@ app/
   js/library.js            WP9   library view
   js/viewer.js             WP10  viewer, host object, history
   js/app.js                WP11  boot, wiring, persistence, updates
+  js/zip.js                later pure: writing and reading zip files
+  js/backup.js             later the backup format: building, reading, restoring
+  js/backup-flow.js        later export library, import library, export page flows
 tests/
   run.cjs, server.cjs      WP1   headless runner and static server
   unit/index.html, unit/harness.js   WP1
@@ -157,6 +160,9 @@ export const EVENTS = {
   addPage: 'jd:add-page',                // the "add new page" button
   replaceFile: 'jd:replace-file',        // detail: { id }
   viewerClosed: 'jd:viewer-closed',
+  exportLibrary: 'jd:export-library',    // the library's "export library" button
+  importLibrary: 'jd:import-library',    // the library's "import library" button
+  exportPage: 'jd:export-page',          // detail: { id }; the viewer's "export" button
 };
 export const SETTINGS = {
   sort: 'library.sort',

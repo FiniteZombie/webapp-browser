@@ -237,7 +237,14 @@ function build() {
   const back = el('button', 'ui-btn view-library', 'library');
   back.type = 'button';
   back.addEventListener('click', toLibrary);
-  bar.append(name, back);
+  const exportBtn = el('button', 'ui-btn view-export', 'export');
+  exportBtn.type = 'button';
+  exportBtn.setAttribute('aria-label', 'export page');
+  exportBtn.addEventListener('click', () => {
+    if (!current) return;
+    document.dispatchEvent(new CustomEvent(EVENTS.exportPage, { detail: { id: current.id } }));
+  });
+  bar.append(name, exportBtn, back);
   const body = el('div', 'view-body');
   root.append(bar, body);
   return { root, name, body };
